@@ -1,0 +1,19 @@
+const I = {
+  server: '\u2630',       // ☰ (trigram for server/host)
+  db: '\u25A6',           // ▦ (filled square for database)
+  table: '\u25A0',        // ■ (filled square for table)
+  view: '\u25CB',         // ○ (circle for view)
+  sql: '\u27E8',          // ⟩ (angle bracket for SQL/query)
+  run: '\u25B6',          // ▶ (play)
+  refresh: '\u21BB',      // ↻ (refresh)
+  close: '\u00D7',        // × (close)
+  search: '\u2315',       // ⌕ (telephone recorder - looks like magnifier)
+  index: '\u2B21',        // ⬡ (hexagon for index)
+  console: '\u2328',      // ⌨ (keyboard for console)
+  tx: '\u29D6',           // ⧖ (hourglass for transaction)
+  fmt: '\u2702',          // ✂ (scissors for format/trim)
+  filter: '\u25BC',       // ▼ (down triangle for filter/dropdown)
+  edit: '\u270E',         // ✎ (pencil for edit)
+  export: '\u2913',       // ⤓ (down arrow to bar for export/download)
+};
+export default I;

@@ -1,0 +1,88 @@
+{
+  "name": "mysql-cli-ui",
+  "version": "2.0.0",
+  "description": "MySQL Explorer - DataGrip-style MySQL management tool",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node server.js",
+    "backend": "nodemon server.js",
+    "frontend:dev": "vite",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend:dev\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start:daemon": "nohup node server.js > server.log 2>&1 & echo $! > server.pid",
+    "stop:daemon": "if [ -f server.pid ]; then kill $(cat server.pid) && rm -f server.pid; else pkill -f \"node server.js\"; fi",
+    "stop": "npm run stop:daemon",
+    "electron:dev": "npm run build && electron .",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:win": "npm run build && electron-builder --win --x64",
+    "electron:build:all": "npm run build && electron-builder --mac --win --x64"
+  },
+  "keywords": [
+    "mysql",
+    "ui",
+    "admin",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "mysql2": "^3.3.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-icons": "^5.6.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "nodemon": "^3.0.1",
+    "vite": "^5.4.1"
+  },
+  "build": {
+    "appId": "com.mysql-explorer.app",
+    "productName": "MySQL Explorer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server.js",
+      "db.js",
+      "node_modules/**/*",
+      "!node_modules/.cache",
+      "!node_modules/electron/dist/**",
+      "!node_modules/electron-builder/**"
+    ],
+    "asarUnpack": [
+      "node_modules/mysql2/**"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "uninstallDisplayName": "MySQL Explorer"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    }
+  }
+}
