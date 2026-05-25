@@ -13,6 +13,9 @@ release/
 # IDE / Editor
 .vscode/
 .idea/
+.cursor/
+.codebuddy/
+.qoder/
 *.swp
 *.swo
 *~
