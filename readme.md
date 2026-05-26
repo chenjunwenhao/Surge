@@ -5,7 +5,7 @@
 <h1 align="center">Surge <sub>/sɜːrdʒ/</sub></h1>
 
 <p align="center">
-  <strong>MySQL 管理工具，就该这么快。</strong>
+  <strong>MySQL desktop client — as fast as it should be.</strong>
 </p>
 
 <p align="center">
@@ -21,76 +21,80 @@
   <img src="https://img.shields.io/badge/license-MIT-green" />
 </p>
 
----
-
-<p align="center">
-  <strong>不做 PostgreSQL。不做 SQLite。只做 MySQL。</strong><br>
-  一个干净到极致的 MySQL 桌面客户端 —— 搜索快、SQL 美、操作零门槛。
+<p align="right">
+  <a href="./README.zh-CN.md">中文</a>
 </p>
 
 ---
 
-## 下载
+<p align="center">
+  <strong>No PostgreSQL. No SQLite. Just MySQL.</strong><br>
+  A brutally clean MySQL desktop client — fast search, beautiful SQL formatting, zero-barrier data editing.
+</p>
+
+---
+
+## Download
 
 <p align="center">
   <table align="center">
     <tr>
       <td align="center" width="280">
-        <strong>macOS</strong><br><sub>Apple Silicon · DMG 安装包</sub><br><br>
+        <strong>macOS</strong><br><sub>Apple Silicon · DMG installer</sub><br><br>
         <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases/download/v2.0.0/Surge-2.0.0-arm64.dmg">
-          <img src="https://img.shields.io/badge/下载_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
+          <img src="https://img.shields.io/badge/Download_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
-        <strong>Windows</strong><br><sub>x64 · 便携版，解压即用</sub><br><br>
+        <strong>Windows</strong><br><sub>x64 · Portable, unzip and run</sub><br><br>
         <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases/download/v2.0.0/Surge-2.0.0-portable-win-x64.zip">
-          <img src="https://img.shields.io/badge/下载_便携版-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
+          <img src="https://img.shields.io/badge/Download_Portable-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>
     </tr>
   </table>
 </p>
 
-> 也可从源码运行：`git clone` → `npm install` → `npm run dev` → 打开 `http://localhost:5173`
+> Or build from source: `git clone` → `npm install` → `npm run dev` → open `http://localhost:5173`
 
-## 三个让你回不去的理由
+## Three reasons you won't go back
 
 <table>
 <tr>
 <td width="33%" valign="top">
-<h4 align="center">搜得飞快</h4>
-<p>侧边栏就像 Spotlight —— 打几个字，库、表、字段即时过滤。全拼、模糊匹配，一秒定位。不再 point-and-click 翻层级。</p>
+<h4 align="center">Search like Spotlight</h4>
+<p>Type a few characters in the sidebar — databases, tables, and columns filter instantly. Full pinyin and fuzzy matching. No more point-and-click tree diving.</p>
 </td>
 <td width="33%" valign="top">
-<h4 align="center">SQL 有美感</h4>
-<p>400 行手写格式化引擎，零依赖。SELECT 列对齐、JOIN 层级缩进、子查询括号包裹、CASE/WHEN 语块分明、UNION 空行分隔。不是机器式的关键字换行，是给人看的排版。</p>
+<h4 align="center">SQL that reads like prose</h4>
+<p>400 lines of hand-written formatting engine. Zero dependencies. SELECT columns aligned, JOINs indented by depth, subqueries wrapped in brackets, CASE/WHEN blocks clearly separated, UNIONs split by blank lines. Not mechanical keyword-wrapping — formatted for humans.</p>
 </td>
 <td width="33%" valign="top">
-<h4 align="center">告别手写 CRUD</h4>
-<p>双击表名直接看数据行，展开即见列结构和 COMMENT。编辑单元格 → 修改高亮 → 批量保存。零 SQL 操作数据库，像用 Excel 一样自然。</p>
+<h4 align="center">Ditch hand-written CRUD</h4>
+<p>Double-click a table to see its data. Expand a column to see its structure and COMMENT. Edit cells in place → changes highlighted → batch save back. Operate your database like a spreadsheet — zero SQL required.</p>
 </td>
 </tr>
 </table>
 
-## 功能
+## Features
 
-| 能力 | 一句话 |
+| Feature | In one line |
 |:---|:---|
-| **DDL 即视感** | 右键 View DDL，Monaco 语法高亮展示完整建表语句，含列、索引、约束 |
-| **元数据到位** | 表节点显示 COMMENT 注释，列显示类型徽章 + 主键标识 + 行数 |
-| **索引一览** | 名称、列、唯一性、类型、序位，一个面板全看清 |
-| **上下文智能补全** | `FROM` 后弹表名、`SELECT` 后弹列名、`table.` 后弹该表字段，100+ 关键字 |
-| **实时语法检查** | 全角字符误用、关键字拼错 —— 波浪线标记，写 SQL 不再踩坑 |
-| **批量执行** | 多段 SQL 一起跑，结果分组展示，每段标执行时间和行数 |
-| **原地编辑数据** | 双击单元格直接改，修改行高亮，批量写回数据库 |
-| **CSV / JSON 导出** | 查询结果一键下载 |
-| **查询历史** | 自动记录 50 条 SQL，带时间戳，可搜索复用 |
-| **事务可视化** | `BEGIN` / `COMMIT` / `ROLLBACK` 全程可追踪 |
-| **多实例 & 连接池** | 同时连多台 MySQL，池化复用，掉线自动重连 |
-| **暗 / 亮双主题** | DataGrip 风暗色 + 明亮模式，持久记忆 |
-| **键盘流** | `Ctrl+F` 搜库表 · `Ctrl+Enter` 执行 · `Ctrl+Shift+F` 格式化 · `Ctrl+W` 关标签 · `Ctrl+Shift+R` 恢复关闭标签 |
+| **DDL at a glance** | Right-click → View DDL, Monaco syntax-highlights the full `CREATE TABLE` with columns, indexes, and constraints |
+| **Metadata rich** | Tree nodes show `TABLE_COMMENT`, columns show type badges + primary key indicators + row counts |
+| **Index browser** | Name, columns, uniqueness, type, cardinality — all in one panel |
+| **Context-aware autocomplete** | `FROM` suggests tables, `SELECT` suggests columns, `table.` suggests that table's fields, 100+ keywords |
+| **Real-time SQL linting** | Full-width characters, Chinese punctuation in keywords — squiggly underline before you even run |
+| **Batch execution** | Run multiple statements at once, results grouped with per-block timing and row counts |
+| **In-place data editing** | Double-click any cell, changes highlighted, batch write-back to the database |
+| **CSV / JSON export** | One-click download of query results |
+| **Query history** | Auto-saves 50 queries with timestamps, searchable and reusable |
+| **Transaction visualization** | `BEGIN` / `COMMIT` / `ROLLBACK` with full visibility |
+| **Multi-instance & connection pool** | Connect to multiple MySQL servers at once, pooled connections with auto-reconnect |
+| **Dark / Light themes** | DataGrip-inspired dark mode + bright mode, persisted across sessions |
+| **Keyboard first** | `Ctrl+F` search · `Ctrl+Enter` run · `Ctrl+Shift+F` format · `Ctrl+W` close tab · `Ctrl+Shift+R` reopen tab |
 
-## 自行构建
+## Build from source
 
 ```bash
 # macOS (.dmg)
@@ -99,27 +103,27 @@ npm run electron:build:mac
 # Windows (.exe)
 npm run electron:build:win
 
-# 全平台
+# All platforms
 npm run electron:build:all
 ```
 
-## 技术栈
+## Tech stack
 
-| 层 | 技术 |
+| Layer | Technology |
 |:---|:---|
-| 前端 | React 18 · Vite 5 · Monaco Editor |
-| 后端 | Express · MySQL2 · 连接池 |
-| 桌面 | Electron |
+| Frontend | React 18 · Vite 5 · Monaco Editor |
+| Backend | Express · MySQL2 · Connection pool |
+| Desktop | Electron |
 
-## 项目结构
+## Project structure
 
 ```
 src/
-  ├── App.jsx         主应用 · 状态管理 · 连接逻辑
-  ├── components/     侧边栏树 · 编辑器 · 表格 · DDL · 索引 · 上下文菜单
-  └── utils/          SQL 格式化器 · 检查器 · 图标 · API 客户端
-server.js             Express 后端（20+ API 端点 + 连接池）
-electron/             Electron 桌面壳
+  ├── App.jsx         Main app · state management · connection logic
+  ├── components/     Sidebar tree · editor · data grid · DDL · indexes · context menu
+  └── utils/          SQL formatter · linter · icons · API client
+server.js             Express backend (20+ API endpoints + connection pool)
+electron/             Electron desktop shell
 ```
 
 ---
@@ -127,7 +131,7 @@ electron/             Electron 桌面壳
 <p align="center">
   <a href="https://github.com/chenjunwenhao/MySQL-Explorer/blob/main/LICENSE">MIT License</a>
   &nbsp;&middot;&nbsp;
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/issues">提交 Issue</a>
+  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/issues">Submit an Issue</a>
   &nbsp;&middot;&nbsp;
   <a href="https://github.com/chenjunwenhao/MySQL-Explorer">Star ⭐</a>
 </p>
