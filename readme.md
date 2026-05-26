@@ -2,7 +2,7 @@
   <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%230ea5e9'/%3E%3Cstop offset='100%25' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='72' height='72' rx='16' fill='%230f172a'/%3E%3Cpath d='M12 48 Q22 32 32 48 Q42 64 52 48 Q58 40 62 48' fill='none' stroke='url(%23g)' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='30' r='4' fill='url(%23g)'/%3E%3C/svg%3E" width="76" />
 </p>
 
-<h1 align="center">Surge</h1>
+<h1 align="center">Surge <sub>/sɜːrdʒ/</sub></h1>
 
 <p align="center">
   <strong>MySQL 管理工具，就该这么快。</strong>
