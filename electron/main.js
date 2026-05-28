@@ -23,7 +23,7 @@ async function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: 'MySQL Explorer',
+    title: 'Surge',
     backgroundColor: '#1e1e2e',
     show: false, // Show after ready to avoid flicker
     webPreferences: {

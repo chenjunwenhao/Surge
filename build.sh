@@ -1,5 +1,5 @@
 #!/bin/bash
-# MySQL Explorer - Build script for Mac & Windows
+# Surge - Build script for Mac & Windows
 # Prerequisites: Node.js >= 18, npm
 
 set -e
