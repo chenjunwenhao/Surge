@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Squircle background -->
+  <rect width="1024" height="1024" rx="225" ry="225" fill="#2563eb"/>
+
+  <!-- Database cylinder -->
+  <g>
+    <!-- Bottom edge -->
+    <ellipse cx="512" cy="650" rx="250" ry="62" fill="#1d4ed8" opacity="0.5"/>
+
+    <!-- Cylinder body -->
+    <rect x="262" y="350" width="500" height="300" fill="#ffffff"/>
+
+    <!-- Depth ring -->
+    <ellipse cx="512" cy="480" rx="250" ry="62" fill="none" stroke="#bfdbfe" stroke-width="2.5"/>
+
+    <!-- Top ellipse -->
+    <ellipse cx="512" cy="350" rx="250" ry="62" fill="#eff6ff"/>
+
+    <!-- Bottom edge stroke -->
+    <ellipse cx="512" cy="650" rx="250" ry="62" fill="none" stroke="#bfdbfe" stroke-width="20"/>
+  </g>
+</svg>
