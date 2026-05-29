@@ -544,11 +544,16 @@ export default function App() {
       } else {
         setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, batchResults: batch, results: null, fields: [], error: null, singleResult: null } : t));
       }
+      // Refresh sidebar tree after DDL/DML that may have changed schema
+      const hasSchemaChange = batch.some(b => b.affectedRows !== undefined && b.affectedRows !== null);
+      if (hasSchemaChange && activeTab.db) {
+        loadTabs(effInstId, activeTab.db).catch(() => {});
+      }
     } else {
       setStatus('Query failed');
       setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: r.error || 'Unknown error', results: null, batchResults: null } : t));
     }
-  }, [activeTab, ensureConnected]);
+  }, [activeTab, ensureConnected, loadTabs]);
 
   /* ----- Format SQL ----- */
   const fmtSQL = useCallback(() => {
