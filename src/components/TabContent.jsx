@@ -179,7 +179,7 @@ export default function TabContent({
         </div>
       </div>
 
-      <div className="editor-area" style={{ flex: `0 0 ${editorSplitPct}%`, minHeight: 100 }}>
+      <div className="editor-area" style={{ flex: `${editorSplitPct} 0 0`, minHeight: 100 }}>
         <Editor
           height="100%"
           defaultLanguage="sql"
