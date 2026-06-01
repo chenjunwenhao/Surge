@@ -226,7 +226,7 @@ export default function TabContent({
 
       <div className="resizer-v" ref={rezVRef} onMouseDown={() => { rezVFlag.current = true; }} />
 
-      <div className="result-panel" style={{ flex: `0 0 ${100 - editorSplitPct}%`, minHeight: 60 }}>
+      <div className="result-panel" style={{ flex: `${100 - editorSplitPct} 0 0`, minHeight: 60 }}>
         {activeTab.batchResults && activeTab.batchResults.length > 1 ? (
           <div className="batch-results" style={{ borderTop: 'none' }}>
             <div className="batch-header">
