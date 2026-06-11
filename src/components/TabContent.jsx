@@ -52,6 +52,7 @@ export default function TabContent({
   setDbPickerSearch,
   theme,
   cancelQuery,
+  running,
   exportResult,
 }) {
   const [historySearch, setHistorySearch] = useState('');
