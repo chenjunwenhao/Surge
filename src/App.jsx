@@ -69,6 +69,9 @@ export default function App() {
   const rezFlag = useRef(false);
   const rezVRef = useRef(null);
   const rezVFlag = useRef(false);
+  const abortRef = useRef(null);
+  const timerRef = useRef(null);
+  const [running, setRunning] = useState(false);
   const instancesRef = useRef(instances);
   instancesRef.current = instances;
   const suggestCacheRef = useRef({ allTabs: [], allCols: [], allDbs: new Set(), version: 0 });
@@ -458,7 +461,6 @@ export default function App() {
   const selInstRef = useRef(selInst);
   selInstRef.current = selInst;
   const refs = useRef({ activeTabId: null, closeTab: null, showHistory: false, setShowHistory: null });
-  refs.current = { activeTabId, closeTab, showHistory, setShowHistory };
 
   /* ----- New query tab ----- */
   const newQuery = useCallback((instId, db, sql) => {
@@ -547,13 +549,23 @@ export default function App() {
     }
     if (!sql.trim()) return;
 
+    // Cancel previous running query if any
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setQueryHistory(prev => {
       const next = [{ sql: sql.trim(), ts: Date.now(), instId: activeTab.instId, db: activeTab.db }, ...prev.filter(h => h.sql !== sql.trim())].slice(0, 50);
       localStorage.setItem('sql-history', JSON.stringify(next));
       return next;
     });
 
-    setStatus('Running...');
+    const startTime = Date.now();
+    setStatus('Running... 0ms');
+    setRunning(true);
+    timerRef.current = setInterval(() => {
+      setStatus(`Running... ${Date.now() - startTime}ms`);
+    }, 100);
     setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: null, batchResults: null, results: null } : t));
 
     let effInstId = activeTab.instId;
@@ -563,39 +575,55 @@ export default function App() {
         setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, instId: effInstId } : t));
       }
     } catch (e) {
+      clearTimeout(timerRef.current);
+      abortRef.current = null;
+      setRunning(false);
       setStatus('Reconnect failed');
       setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: e.message || String(e), results: null } : t));
       return;
     }
 
-    const r = await api('/api/query-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: effInstId, sql, database: activeTab.db || '' }) });
+    try {
+      const r = await api('/api/query-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: effInstId, sql, database: activeTab.db || '' }), signal: controller.signal });
 
-    if (r.ok && r.results) {
-      let batch = r.results.filter(b => !/^USE\s+`/.test(b.sql || ''));
-      if (batch.length === 0) { setStatus('OK'); return; }
-      const totalRows = batch.reduce((s, x) => s + (x.rows?.length || 0), 0);
-      const totalAffected = batch.reduce((s, x) => s + (x.affectedRows || 0), 0);
-      const hasError = batch.some(x => !x.ok);
-      const statusParts = [];
-      if (totalRows) statusParts.push(`${totalRows} rows`);
-      if (totalAffected) statusParts.push(`${totalAffected} affected`);
-      if (!statusParts.length) statusParts.push('OK');
-      if (isSelection) statusParts.push('[selection]');
-      setStatus(hasError ? 'Error in batch' : statusParts.join(' '));
-      if (batch.length === 1) {
-        const b = batch[0];
-        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, results: b.ok ? b.rows : null, fields: b.ok ? b.fields : [], error: b.ok ? null : b.error, singleResult: b, batchResults: null } : t));
+      if (r.ok && r.results) {
+        let batch = r.results.filter(b => !/^USE\s+`/.test(b.sql || ''));
+        if (batch.length === 0) { setStatus('OK'); return; }
+        const totalRows = batch.reduce((s, x) => s + (x.rows?.length || 0), 0);
+        const totalAffected = batch.reduce((s, x) => s + (x.affectedRows || 0), 0);
+        const hasError = batch.some(x => !x.ok);
+        const statusParts = [];
+        if (totalRows) statusParts.push(`${totalRows} rows`);
+        if (totalAffected) statusParts.push(`${totalAffected} affected`);
+        if (!statusParts.length) statusParts.push('OK');
+        if (isSelection) statusParts.push('[selection]');
+        setStatus(hasError ? 'Error in batch' : statusParts.join(' '));
+        if (batch.length === 1) {
+          const b = batch[0];
+          setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, results: b.ok ? b.rows : null, fields: b.ok ? b.fields : [], error: b.ok ? null : b.error, singleResult: b, batchResults: null } : t));
+        } else {
+          setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, batchResults: batch, results: null, fields: [], error: null, singleResult: null } : t));
+        }
+        const hasSchemaChange = batch.some(b => b.affectedRows !== undefined && b.affectedRows !== null);
+        if (hasSchemaChange && activeTab.db) {
+          loadTabs(effInstId, activeTab.db).catch(() => {});
+        }
       } else {
-        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, batchResults: batch, results: null, fields: [], error: null, singleResult: null } : t));
+        setStatus('Query failed');
+        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: r.error || 'Unknown error', results: null, batchResults: null } : t));
       }
-      // Refresh sidebar tree after DDL/DML that may have changed schema
-      const hasSchemaChange = batch.some(b => b.affectedRows !== undefined && b.affectedRows !== null);
-      if (hasSchemaChange && activeTab.db) {
-        loadTabs(effInstId, activeTab.db).catch(() => {});
+    } catch (e) {
+      if (controller.signal.aborted) {
+        setStatus('Cancelled');
+        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, results: null, batchResults: null, error: null } : t));
+      } else {
+        setStatus('Query failed');
+        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: e.message || String(e), results: null, batchResults: null } : t));
       }
-    } else {
-      setStatus('Query failed');
-      setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: r.error || 'Unknown error', results: null, batchResults: null } : t));
+    } finally {
+      clearInterval(timerRef.current);
+      if (abortRef.current === controller) abortRef.current = null;
+      setRunning(false);
     }
   }, [activeTab, ensureConnected, loadTabs]);
 
@@ -609,11 +637,20 @@ export default function App() {
     setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, sql: formatted } : t));
   }, [activeTab]);
 
+  /* ----- Cancel running query ----- */
+  const cancelQuery = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }, []);
+
   /* ----- Explain query ----- */
   const explainQuery = useCallback(async () => {
     if (!activeTab || activeTab.type !== 'query') return;
     setStatus('Explaining...');
-    const sql = (edRef.current?.getValue() || activeTab.sql || '').trim();
+    const rawSql = (edRef.current?.getValue() || activeTab.sql || '').trim();
+    const sql = rawSql.split(';')[0].trim(); // EXPLAIN only supports single statement
+    if (!sql) { setStatus('No valid SQL to explain'); return; }
     let effInstId = activeTab.instId;
     try { effInstId = await ensureConnected(activeTab.instId); } catch (e) {
       setStatus('Reconnect failed');
@@ -846,6 +883,9 @@ export default function App() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  /* keep refs in sync for keyboard handler */
+  refs.current = { activeTabId, closeTab, showHistory, setShowHistory };
+
   /* ----- Ctrl+F / Cmd+F tree search, Ctrl+W close tab shortcuts ----- */
   useEffect(() => {
     const handler = (e) => {
@@ -903,21 +943,6 @@ export default function App() {
       toast('Export failed: ' + (e.message || String(e)), 'error');
     }
   }, [activeTab, openTabs, toast]);
-
-  /* ----- Cancel query ----- */
-  const cancelQuery = useCallback(async () => {
-    if (!activeTab) return;
-    const instId = activeTab.instId;
-    if (!instId) return;
-    try {
-      const r = await api('/api/cancel-query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: instId }) });
-      if (r.ok) toast('Query cancelled', 'warning');
-      else toast('Cancel failed', 'error');
-    } catch (e) {
-      toast('Cancel failed', 'error');
-    }
-  }, [activeTab, toast]);
-
 
   /* ==================== RENDER ==================== */
   return (
@@ -1087,6 +1112,8 @@ export default function App() {
             setMSave={setMSave}
             setMResult={setMResult}
             execQuery={execQuery}
+            cancelQuery={cancelQuery}
+            running={running}
             explainQuery={explainQuery}
             fmtSQL={fmtSQL}
             txAction={txAction}
@@ -1119,7 +1146,6 @@ export default function App() {
             dbPickerSearch={dbPickerSearch}
             setDbPickerSearch={setDbPickerSearch}
             exportResult={exportResult}
-            cancelQuery={cancelQuery}
             theme={theme}
           />
         </div>

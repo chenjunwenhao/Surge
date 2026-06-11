@@ -19,7 +19,12 @@ export default function QueryResultTable({ rows, fields, error }) {
       <table className="result-table">
         <thead><tr>
           <th style={{ width: 40, textAlign: 'center' }}>#</th>
-          {cols.map((n, i) => <th key={n}>{n}{fields?.[i] && <span className="col-type">{fields[i].type}</span>}</th>)}
+          {cols.map((n, i) => (
+  <th key={n}>
+    <span className="col-name">{n}</span>
+    {fields?.[i] && <span className="col-type">{fields[i].type}</span>}
+  </th>
+))}
         </tr></thead>
         <tbody>
           {paged.map((row, ri) => (

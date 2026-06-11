@@ -191,7 +191,7 @@ export default function TabContent({
           <button className="btn btn-sm" onClick={() => txAction('begin')} title="Begin Transaction">{I.tx} Begin</button>
           <button className="btn btn-sm" onClick={() => txAction('commit')} title="Commit">Commit</button>
           <button className="btn btn-sm" onClick={() => txAction('rollback')} title="Rollback">Rollback</button>
-          {selInst && <button className="btn btn-sm" onClick={cancelQuery} title="Cancel Running Query" style={{ color: 'var(--red)' }}>✕ Cancel</button>}
+          {running && <button className="btn btn-sm" onClick={cancelQuery} title="Cancel Running Query" style={{ color: 'var(--red)' }}>✕ Stop</button>}
           <span className="toolbar-spacer" />
           <button className="btn btn-sm" onClick={() => setShowHistory(p => !p)} title="Query History (Ctrl+H)" style={{ position: 'relative' }}>
             ⌛ History
@@ -206,6 +206,7 @@ export default function TabContent({
 
       <div className="editor-area" style={{ flex: `${editorSplitPct} 0 0`, minHeight: 100 }}>
         <Editor
+          key={activeTab?.id}
           height="100%"
           defaultLanguage="sql"
           defaultValue={activeTab.sql}
