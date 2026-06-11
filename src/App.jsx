@@ -10,6 +10,7 @@ import SidebarTree from './components/SidebarTree';
 import QueryPicker from './components/QueryPicker';
 import ContextMenu from './components/ContextMenu';
 import TabContent from './components/TabContent';
+import ConfirmDialog from './components/ConfirmDialog';
 
 /* ==================== MAIN APP ==================== */
 export default function App() {
@@ -41,6 +42,7 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   const [mEditId, setMEditId] = useState(null);
   const [tabCtxMenu, setTabCtxMenu] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   /* ----- Theme effect ----- */
   useEffect(() => {
@@ -323,10 +325,18 @@ export default function App() {
     }
   }, [ensureConnected, loadDbs, toast]);
 
+  /* ----- Confirm dialog helper ----- */
+  const askConfirm = useCallback((title, message, confirmLabel) => {
+    return new Promise((resolve) => {
+      setConfirmDialog({ title, message, confirmLabel, resolve });
+    });
+  }, []);
+
   /* ----- Disconnect instance ----- */
   const disconnectInst = useCallback(async (instId) => {
     const instName = instancesRef.current.find(i => i.id === instId)?.name || instId;
-    if (!window.confirm(`Disconnect from "${instName}"?`)) return;
+    const ok = await askConfirm('Disconnect', `Disconnect from "${instName}"?`, 'Disconnect');
+    if (!ok) return;
     setStatus('Disconnecting...');
     try {
       const r = await api('/api/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: instId }) });
@@ -342,7 +352,7 @@ export default function App() {
       setStatus('Disconnect failed: ' + (e.message || String(e)));
       toast('Disconnect failed: ' + (e.message || String(e)), 'error');
     }
-  }, [toast]);
+  }, [toast, askConfirm]);
 
   /* ----- Refresh database ----- */
   const refreshDb = useCallback(async (instId, dbName) => {
@@ -1191,6 +1201,15 @@ export default function App() {
         mResult={mResult}
         onTest={testConn}
         onConnect={modalConnect}
+      />
+
+      <ConfirmDialog
+        show={!!confirmDialog}
+        title={confirmDialog?.title || ''}
+        message={confirmDialog?.message || ''}
+        confirmLabel={confirmDialog?.confirmLabel || 'Confirm'}
+        onConfirm={() => { confirmDialog?.resolve(true); setConfirmDialog(null); }}
+        onCancel={() => { confirmDialog?.resolve(false); setConfirmDialog(null); }}
       />
     </div>
   );
