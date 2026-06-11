@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases"><img src="https://img.shields.io/badge/Download-v2.0.3-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases"><img src="https://img.shields.io/badge/Download-v2.0.4-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/MySQL-Explorer"><img src="https://img.shields.io/github/stars/chenjunwenhao/MySQL-Explorer?style=for-the-badge&color=fbbf24" /></a>
 </p>
@@ -41,7 +41,7 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG 安装包</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases/download/v2.0.3/Surge-2.0.3-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases/download/v2.0.4/Surge-2.0.3-arm64.dmg">
           <img src="https://img.shields.io/badge/下载_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
