@@ -76,8 +76,8 @@ export default function TableDataGrid({ columns, rows, pkColumns, dirtyRows, onC
                   else if (sortDir === 'asc') setSortDir('desc');
                   else { setSortCol(null); setSortDir('asc'); }
                 }}>
-                {col.COLUMN_NAME} {sortCol === col.COLUMN_NAME ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
-                <span className="col-type"> {col.DATA_TYPE}</span>
+                <span className="col-name">{col.COLUMN_NAME} {sortCol === col.COLUMN_NAME ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}</span>
+                <span className="col-type">{col.DATA_TYPE}</span>
                 {col.COLUMN_KEY === 'PRI' && <span style={{ color: 'var(--yellow)', marginLeft: 4 }}>PK</span>}
               </th>
             ))}
