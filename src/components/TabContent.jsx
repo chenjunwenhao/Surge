@@ -55,6 +55,7 @@ export default function TabContent({
   exportResult,
 }) {
   const [historySearch, setHistorySearch] = useState('');
+  const [copiedIdx, setCopiedIdx] = useState(null);
   const historyRef = useRef(null);
   const setSubTab = (tid, st) => setOpenTabs(p => p.map(t => t.id === tid ? { ...t, subTab: st } : t));
 
@@ -371,13 +372,26 @@ export default function TabContent({
                         {h.db && <span className="history-item-db">{h.db}</span>}
                       </div>
                     </div>
-                    <button className="history-item-delete" title="Remove"
-                      onClick={e => {
-                        e.stopPropagation();
-                        const next = queryHistory.filter(item => item !== h);
-                        setQueryHistory(next);
-                        localStorage.setItem('sql-history', JSON.stringify(next));
-                      }}>×</button>
+                    {copiedIdx === i ? (
+                      <span className="history-item-copied">Copied!</span>
+                    ) : (
+                      <>
+                        <button className="history-item-copy" title="Copy SQL"
+                          onClick={e => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(h.sql);
+                            setCopiedIdx(i);
+                            setTimeout(() => setCopiedIdx(null), 1200);
+                          }}>⧉</button>
+                        <button className="history-item-delete" title="Remove"
+                          onClick={e => {
+                            e.stopPropagation();
+                            const next = queryHistory.filter(item => item !== h);
+                            setQueryHistory(next);
+                            localStorage.setItem('sql-history', JSON.stringify(next));
+                          }}>×</button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
