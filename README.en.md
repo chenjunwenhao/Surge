@@ -76,23 +76,111 @@
 </tr>
 </table>
 
-## Features
+## Help
 
-| Feature | In one line |
-|:---|:---|
-| **DDL at a glance** | Right-click → View DDL, Monaco syntax-highlights the full `CREATE TABLE` with columns, indexes, and constraints |
-| **Metadata rich** | Tree nodes show `TABLE_COMMENT`, columns show type badges + primary key indicators + row counts |
-| **Index browser** | Name, columns, uniqueness, type, cardinality — all in one panel |
-| **Context-aware autocomplete** | `FROM` suggests tables, `SELECT` suggests columns, `table.` suggests that table's fields, 100+ keywords |
-| **Real-time SQL linting** | Full-width characters, Chinese punctuation in keywords — squiggly underline before you even run |
-| **Batch execution** | Run multiple statements at once, results grouped with per-block timing and row counts |
-| **In-place data editing** | Double-click any cell, changes highlighted, batch write-back to the database |
-| **CSV / JSON export** | One-click download of query results |
-| **Query history** | Auto-saves 50 queries with timestamps, searchable and reusable |
-| **Transaction visualization** | `BEGIN` / `COMMIT` / `ROLLBACK` with full visibility |
-| **Multi-instance & connection pool** | Connect to multiple MySQL servers at once, pooled connections with auto-reconnect |
-| **Dark / Light themes** | DataGrip-inspired dark mode + bright mode, persisted across sessions |
-| **Keyboard first** | `Ctrl+F` search · `Ctrl+Enter` run · `Ctrl+Shift+F` format · `Ctrl+W` close tab · `Ctrl+Shift+R` reopen tab |
+### Keyboard Shortcuts
+
+| Shortcut | Action | Note |
+|---|---|---|
+| `Ctrl+Enter` | Run SQL | Execute query or selected text in editor |
+| `Ctrl+Shift+Enter` | EXPLAIN | Show query execution plan |
+| `Ctrl+Space` | Trigger autocomplete | Manually open suggestion menu |
+| `Ctrl+F` | Search tree | Focus sidebar search (when not in editor) |
+| `Ctrl+W` | Close tab | Close current tab (when not in editor) |
+| `Ctrl+H` | History | Toggle Query History panel |
+| `Ctrl+Shift+T` | Reopen tab | Restore the last closed tab |
+| `Escape` | Multi-purpose | Close History / cancel cell edit / clear search |
+| `Enter` | Confirm edit | Commit current cell modification |
+
+### Connection Management
+
+- **New Connection**: Host, Port, User, Password, Database — test before connecting
+- **Saved Connections**: Persistent storage, double-click to reconnect
+- **Multi-instance**: Connect to multiple MySQL servers simultaneously with pooled connections and auto-reconnect
+- **Disconnect confirmation**: Dialog prompt to prevent accidental disconnects
+
+### Database Explorer (Sidebar)
+
+- Expand instance → databases → tables/views (grouped: Tables / Views)
+- Expand a table to see columns (type badges, PK indicators, comments) and indexes
+- Sidebar **search box** (`Ctrl+F`) with pinyin and fuzzy matching
+- Each database level has a dedicated **Console** entry point
+- Refresh button with **spinner animation** feedback
+- Disconnect button with confirmation dialog
+
+### Context Menu
+
+| Target | Menu Items |
+|---|---|
+| Table | Edit Data · View DDL · Show Indexes · Refresh · Copy Name · SELECT * FROM |
+| Database/Instance | Open Console · Refresh · Copy Name · Disconnect (instance) |
+
+### Tab Management
+
+- Query and table data tabs coexist
+- Close single tab (× button / `Ctrl+W`)
+- Right-click menu: Close / Close Others / Close to Right / Close to Left / Close All / Reopen
+- ≡ dropdown for 5+ tabs
+- `Ctrl+Shift+T` reopens closed tabs (remembers last 20)
+
+### SQL Editor (Monaco)
+
+- **Context-aware autocomplete**:
+  - After `FROM`/`JOIN`/`INTO` → table names (with VIEW indicator)
+  - After `SELECT`/`WHERE`/`ON` → column names (with type and source table)
+  - Type `table.` → precise column suggestions for that table
+  - 100+ SQL keywords + 50+ built-in functions
+- **Real-time SQL linting**: Full-width characters, keyword misspellings highlighted with red squiggly lines
+- SQL Formatting (semantic indentation, alignment, separation)
+- Code folding, word wrap, line numbers
+
+### Editor Toolbar
+
+| Button | Function |
+|---|---|
+| DB Selector | Searchable dropdown to switch database for current tab |
+| Begin / Commit / Rollback | Transaction control |
+| Cancel | Cancel running query |
+| History ⌛ | Query History panel (`Ctrl+H`), with count badge |
+| ↩ | Reopen closed tab (`Ctrl+Shift+T`) |
+| Format | SQL formatting |
+| Explain | Query execution plan (`Ctrl+Shift+Enter`) |
+| Run | Execute query (`Ctrl+Enter`) |
+
+### Query Results & Batch Execution
+
+- **Selection execution**: Highlight text to run only the selection
+- **Batch execution**: Multiple SQL statements separated by semicolons, results grouped per statement with row count / affected rows / elapsed time
+- Batch results expandable for detailed data view, CSV/JSON export
+- EXPLAIN results shown in separate panel
+
+### Query History
+
+- Auto-saves last 50 queries (persisted in localStorage)
+- **Search/filter**: Real-time filtering via header input
+- **Click to reuse**: Opens query in a new tab with original database context
+- **Single item delete**: Hover to reveal × button
+- **Clear all**: Clear All button
+- Close on Escape or click outside
+
+### Table Data Editing (Zero-SQL CRUD)
+
+- Double-click a table to open data grid, three sub-tabs: Data / DDL / Indexes
+- **Data panel**:
+  - Double-click cell for inline editing, dirty rows highlighted
+  - Batch save (auto-generates UPDATE via primary key)
+  - Pagination (20/50/100/200 rows), column sorting, text filter
+  - Enter to confirm / Escape to cancel edit
+  - NULL values shown in gray italic
+- **DDL panel**: Monaco syntax-highlighted CREATE TABLE
+- **Indexes panel**: Name, columns, uniqueness, type at a glance
+
+### Themes & Layout
+
+- Dark / Light theme toggle (persisted in localStorage)
+- Resizable sidebar (240-500px)
+- Resizable editor/result panel split (20-80%)
+- Auto-refresh sidebar tree after DDL/DML operations
 
 ## Build from source
 
