@@ -964,7 +964,7 @@ button, input, select, textarea {
 .batch-item-body {
   border-top: 1px solid var(--border-light);
   padding: 2px 0;
-  max-height: 260px;
+  max-height: 400px;
   overflow: auto;
 }
 .result-actions {

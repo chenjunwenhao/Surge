@@ -40,6 +40,7 @@ export default function App() {
   const [batchExpanded, setBatchExpanded] = useState({});
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   const [mEditId, setMEditId] = useState(null);
+  const [tabCtxMenu, setTabCtxMenu] = useState(null);
 
   /* ----- Theme effect ----- */
   useEffect(() => {
@@ -304,32 +305,39 @@ export default function App() {
   /* ----- Refresh instance ----- */
   const refreshInst = useCallback(async (instId) => {
     setStatus('Refreshing...');
+    setRefreshing(p => ({ ...p, [instId]: true }));
     setTreeErrors(p => { const n = { ...p }; delete n[instId]; return n; });
     try {
       const effId = await ensureConnected(instId);
       await loadDbs(effId);
       setStatus('Refreshed');
+      toast('Refreshed', 'success');
     } catch (e) {
       setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
       setStatus('Refresh failed');
+    } finally {
+      setRefreshing(p => { const n = { ...p }; delete n[instId]; return n; });
     }
-  }, [ensureConnected, loadDbs]);
+  }, [ensureConnected, loadDbs, toast]);
 
   /* ----- Disconnect instance ----- */
   const disconnectInst = useCallback(async (instId) => {
+    const instName = instancesRef.current.find(i => i.id === instId)?.name || instId;
+    if (!window.confirm(`Disconnect from "${instName}"?`)) return;
     setStatus('Disconnecting...');
-    const instNameFromMap = instancesRef.current.find(i => i.id === instId)?.name || instId;
     try {
       const r = await api('/api/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: instId }) });
       if (r.ok) {
         setInstances(p => p.map(i => i.id === instId ? { ...i, connected: false, expanded: false, databases: [], expandedDbs: {}, expandedTables: {}, dbTables: {}, tableColumns: {}, tableIndexes: {} } : i));
-        toast('Disconnected: ' + instNameFromMap, 'info');
+        toast('Disconnected: ' + instName, 'info');
         setStatus('Disconnected');
       } else {
         setStatus('Disconnect failed');
+        toast('Disconnect failed', 'error');
       }
     } catch (e) {
       setStatus('Disconnect failed: ' + (e.message || String(e)));
+      toast('Disconnect failed: ' + (e.message || String(e)), 'error');
     }
   }, [toast]);
 
@@ -337,16 +345,20 @@ export default function App() {
   const refreshDb = useCallback(async (instId, dbName) => {
     setStatus('Refreshing...');
     const ek = `${instId}/${dbName}`;
+    setRefreshing(p => ({ ...p, [ek]: true }));
     setTreeErrors(p => { const n = { ...p }; delete n[ek]; return n; });
     try {
       const effId = await ensureConnected(instId);
       await loadTabs(effId, dbName);
       setStatus('Refreshed');
+      toast('Refreshed', 'success');
     } catch (e) {
       setTreeErrors(p => ({ ...p, [ek]: e.message || String(e) }));
       setStatus('Refresh failed');
+    } finally {
+      setRefreshing(p => { const n = { ...p }; delete n[ek]; return n; });
     }
-  }, [ensureConnected, loadTabs]);
+  }, [ensureConnected, loadTabs, toast]);
 
   /* ----- Tree: toggle instance ----- */
   const toggleInst = useCallback(async (instId) => {
@@ -445,6 +457,8 @@ export default function App() {
   openTabsRef.current = openTabs;
   const selInstRef = useRef(selInst);
   selInstRef.current = selInst;
+  const refs = useRef({ activeTabId: null, closeTab: null });
+  refs.current = { activeTabId, closeTab };
 
   /* ----- New query tab ----- */
   const newQuery = useCallback((instId, db, sql) => {
@@ -481,6 +495,36 @@ export default function App() {
       return r;
     });
   }, [activeTabId]);
+
+  const closeOtherTabs = useCallback((tid) => {
+    setOpenTabs(p => p.filter(t => t.id === tid));
+    setActiveTabId(tid);
+  }, []);
+
+  const closeAllTabs = useCallback(() => {
+    setOpenTabs([]);
+    setActiveTabId(null);
+  }, []);
+
+  const closeTabsToRight = useCallback((tid) => {
+    setOpenTabs(p => {
+      const idx = p.findIndex(t => t.id === tid);
+      if (idx < 0) return p;
+      const r = p.slice(0, idx + 1);
+      if (activeTabId && !r.find(t => t.id === activeTabId)) setActiveTabId(tid);
+      return r;
+    });
+  }, [activeTabId]);
+
+  const closeTabsToLeft = useCallback((tid) => {
+    setOpenTabs(p => {
+      const idx = p.findIndex(t => t.id === tid);
+      if (idx < 0) return p;
+      const r = p.slice(idx);
+      setActiveTabId(tid);
+      return r;
+    });
+  }, []);
 
   const reopenTab = useCallback(() => {
     setClosedTabs(prev => {
@@ -662,7 +706,8 @@ export default function App() {
 
   /* ----- Context menu ----- */
   const onCtx = useCallback((e, instId, dbName, tName, type) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, instId, dbName, tName, type }); }, []);
-  useEffect(() => { const h = () => setCtxMenu(null); document.addEventListener('click', h); return () => document.removeEventListener('click', h); }, []);
+  const onCtxTab = useCallback((e, tabId) => { e.preventDefault(); setTabCtxMenu({ x: e.clientX, y: e.clientY, tabId }); }, []);
+  useEffect(() => { const h = () => { setCtxMenu(null); setTabCtxMenu(null); }; document.addEventListener('click', h); return () => document.removeEventListener('click', h); }, []);
   useEffect(() => {
     if (!dbPickerTabId) return;
     const h = (e) => {
@@ -801,7 +846,7 @@ export default function App() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  /* ----- Ctrl+F / Cmd+F tree search shortcut ----- */
+  /* ----- Ctrl+F / Cmd+F tree search, Ctrl+W close tab shortcuts ----- */
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
@@ -810,6 +855,13 @@ export default function App() {
         e.preventDefault();
         treeSearchRef.current?.focus();
         treeSearchRef.current?.select();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+        const active = document.activeElement;
+        if (active && active.closest('.monaco-editor')) return;
+        e.preventDefault();
+        const { activeTabId: aid, closeTab: ct } = refs.current;
+        if (aid) ct(aid);
       }
     };
     window.addEventListener('keydown', handler);
@@ -976,7 +1028,9 @@ export default function App() {
         <div className="content-area">
           <div className="tab-bar">
             {openTabs.map(t => (
-              <div key={t.id} className={`tab-item${t.id === activeTabId ? ' active' : ''}`} onClick={() => setActiveTabId(t.id)}>
+              <div key={t.id} className={`tab-item${t.id === activeTabId ? ' active' : ''}`}
+                onClick={() => setActiveTabId(t.id)}
+                onContextMenu={(e) => onCtxTab(e, t.id)}>
                 <span>{t.type === 'table' ? I.table : I.sql}</span>
                 <span>{t.title}</span>
                 {t.db && <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 2 }}>· {t.db}</span>}
@@ -1076,6 +1130,18 @@ export default function App() {
         setOpenTabs={setOpenTabs}
         setActiveTabId={setActiveTabId}
       />
+
+      {tabCtxMenu && (
+        <div className="context-menu" style={{ left: tabCtxMenu.x, top: tabCtxMenu.y }}>
+          <div className="context-menu-item" onClick={() => { closeTab(tabCtxMenu.tabId); setTabCtxMenu(null); }}>{I.close} Close Tab</div>
+          <div className="context-menu-item" onClick={() => { closeOtherTabs(tabCtxMenu.tabId); setTabCtxMenu(null); }}>Close Others</div>
+          <div className="context-menu-item" onClick={() => { closeTabsToRight(tabCtxMenu.tabId); setTabCtxMenu(null); }}>Close to Right</div>
+          <div className="context-menu-item" onClick={() => { closeTabsToLeft(tabCtxMenu.tabId); setTabCtxMenu(null); }}>Close to Left</div>
+          <div className="context-menu-item" onClick={() => { closeAllTabs(); setTabCtxMenu(null); }}>Close All</div>
+          <div className="context-menu-divider" />
+          <div className="context-menu-item" onClick={() => { reopenTab(); setTabCtxMenu(null); }}>Reopen Closed Tab</div>
+        </div>
+      )}
 
       <ConnectionModal
         show={showModal}
