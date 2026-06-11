@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import I from '../utils/icons';
 import { scheduleLint } from '../utils/sqlLinter';
@@ -54,7 +54,28 @@ export default function TabContent({
   cancelQuery,
   exportResult,
 }) {
+  const [historySearch, setHistorySearch] = useState('');
+  const historyRef = useRef(null);
   const setSubTab = (tid, st) => setOpenTabs(p => p.map(t => t.id === tid ? { ...t, subTab: st } : t));
+
+  /* ----- History: click outside / Escape to close ----- */
+  useEffect(() => {
+    if (!showHistory) return;
+    const onMouseDown = (e) => {
+      if (historyRef.current && !historyRef.current.contains(e.target)) {
+        setShowHistory(false);
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setShowHistory(false);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showHistory, setShowHistory]);
 
   if (!activeTab) {
     return (
@@ -171,7 +192,10 @@ export default function TabContent({
           <button className="btn btn-sm" onClick={() => txAction('rollback')} title="Rollback">Rollback</button>
           {selInst && <button className="btn btn-sm" onClick={cancelQuery} title="Cancel Running Query" style={{ color: 'var(--red)' }}>✕ Cancel</button>}
           <span className="toolbar-spacer" />
-          <button className="btn btn-sm" onClick={() => setShowHistory(p => !p)} title="Query History">History</button>
+          <button className="btn btn-sm" onClick={() => setShowHistory(p => !p)} title="Query History (Ctrl+H)" style={{ position: 'relative' }}>
+            ⌛ History
+            {queryHistory.length > 0 && <span className="history-badge">{queryHistory.length}</span>}
+          </button>
           <button className="btn btn-sm" onClick={reopenTab} disabled={!closedTabs.length} title="Reopen Closed Tab (Ctrl+Shift+T)">↩</button>
           <button className="btn btn-sm" onClick={fmtSQL} title="Format SQL">{I.fmt} Format</button>
           <button className="btn btn-sm" onClick={explainQuery} disabled={!selInst} title="Explain (Ctrl+Shift+Enter)">{I.search} Explain</button>
@@ -315,24 +339,50 @@ export default function TabContent({
 
       {/* History dropdown */}
       {showHistory && (
-        <div className="history-dropdown" style={{ position: 'fixed', top: '80px', right: '16px', zIndex: 100, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, maxHeight: 300, overflowY: 'auto', width: 360, boxShadow: '0 4px 20px rgba(0,0,0,.4)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid var(--border)' }}>
-            <span style={{ fontSize: 12, fontWeight: 600 }}>Query History ({queryHistory.length})</span>
-            <button className="btn btn-sm" onClick={() => { setQueryHistory([]); localStorage.setItem('sql-history', '[]'); setShowHistory(false); }}>Clear All</button>
+        <div className="history-dropdown" ref={historyRef}>
+          <div className="history-header">
+            <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0 }}>History</span>
+            <input
+              className="history-search"
+              placeholder="Filter..."
+              value={historySearch}
+              onChange={e => setHistorySearch(e.target.value)}
+              autoFocus
+            />
+            <button className="btn btn-sm" onClick={() => { setQueryHistory([]); localStorage.setItem('sql-history', '[]'); setShowHistory(false); }}
+              title="Clear All">Clear</button>
           </div>
-          {queryHistory.length === 0 ? (
-            <div style={{ padding: 12, color: 'var(--text-muted)', fontSize: 12 }}>No history yet. Run a query to start.</div>
-          ) : (
-            queryHistory.slice(0, 30).map((h, i) => (
-              <div key={i} className="history-item" style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: 11 }}
-                onClick={() => { newQuery(h.instId, h.db, h.sql); setShowHistory(false); }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--hover)'}
-                onMouseLeave={e => e.currentTarget.style.background = ''}>
-                <code style={{ display: 'block', whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis', maxHeight: 40, color: 'var(--text)' }}>{h.sql?.length > 100 ? h.sql.slice(0, 100) + '...' : h.sql}</code>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{new Date(h.ts).toLocaleString()}</span>
+          {(() => {
+            const filtered = historySearch.trim()
+              ? queryHistory.filter(h => h.sql.toLowerCase().includes(historySearch.trim().toLowerCase()))
+              : queryHistory;
+            if (filtered.length === 0) {
+              return <div className="history-empty">{historySearch.trim() ? 'No matching queries' : 'No history yet. Run a query to start.'}</div>;
+            }
+            return (
+              <div className="history-list">
+                {filtered.map((h, i) => (
+                  <div key={h.ts + '-' + i} className="history-item"
+                    onClick={() => { newQuery(h.instId, h.db, h.sql); setShowHistory(false); }}>
+                    <div className="history-item-body">
+                      <code className="history-item-code" title={h.sql}>{h.sql}</code>
+                      <div className="history-item-meta">
+                        <span>{new Date(h.ts).toLocaleString()}</span>
+                        {h.db && <span className="history-item-db">{h.db}</span>}
+                      </div>
+                    </div>
+                    <button className="history-item-delete" title="Remove"
+                      onClick={e => {
+                        e.stopPropagation();
+                        const next = queryHistory.filter(item => item !== h);
+                        setQueryHistory(next);
+                        localStorage.setItem('sql-history', JSON.stringify(next));
+                      }}>×</button>
+                  </div>
+                ))}
               </div>
-            ))
-          )}
+            );
+          })()}
         </div>
       )}
     </div>

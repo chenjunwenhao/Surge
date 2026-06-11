@@ -457,8 +457,8 @@ export default function App() {
   openTabsRef.current = openTabs;
   const selInstRef = useRef(selInst);
   selInstRef.current = selInst;
-  const refs = useRef({ activeTabId: null, closeTab: null });
-  refs.current = { activeTabId, closeTab };
+  const refs = useRef({ activeTabId: null, closeTab: null, showHistory: false, setShowHistory: null });
+  refs.current = { activeTabId, closeTab, showHistory, setShowHistory };
 
   /* ----- New query tab ----- */
   const newQuery = useCallback((instId, db, sql) => {
@@ -862,6 +862,13 @@ export default function App() {
         e.preventDefault();
         const { activeTabId: aid, closeTab: ct } = refs.current;
         if (aid) ct(aid);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+        const active = document.activeElement;
+        if (active && active.closest('.monaco-editor')) return;
+        e.preventDefault();
+        const { showHistory: sh, setShowHistory: ssh } = refs.current;
+        if (ssh) ssh(!sh);
       }
     };
     window.addEventListener('keydown', handler);
