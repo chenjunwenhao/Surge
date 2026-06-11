@@ -72,8 +72,9 @@ export default function TableDataGrid({ columns, rows, pkColumns, dirtyRows, onC
             {columns.map(col => (
               <th key={col.COLUMN_NAME} style={{ cursor: 'pointer' }}
                 onClick={() => {
-                  if (sortCol === col.COLUMN_NAME) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-                  else { setSortCol(col.COLUMN_NAME); setSortDir('asc'); }
+                  if (sortCol !== col.COLUMN_NAME) { setSortCol(col.COLUMN_NAME); setSortDir('asc'); }
+                  else if (sortDir === 'asc') setSortDir('desc');
+                  else { setSortCol(null); setSortDir('asc'); }
                 }}>
                 {col.COLUMN_NAME} {sortCol === col.COLUMN_NAME ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
                 <span className="col-type"> {col.DATA_TYPE}</span>
