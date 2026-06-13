@@ -419,12 +419,12 @@ export default function App() {
           </div>
         </div>
         <div className="toolbar-right">
-          <a className="github-link" href="https://github.com/chenjunwenhao/MySQL-Explorer" target="_blank" rel="noopener noreferrer" title="GitHub">
+          <a className="github-link" href="https://github.com/chenjunwenhao/Surge" target="_blank" rel="noopener noreferrer" title="GitHub">
             <FaGithub size={16} />
             <span className="github-tip">
               <div className="github-tip-title">Surge — 开源项目</div>
               欢迎 Star / PR / Issue<br />
-              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>github.com/chenjunwenhao/MySQL-Explorer</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>github.com/chenjunwenhao/Surge</span>
             </span>
           </a>
           <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} title="Toggle theme">

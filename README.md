@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases"><img src="https://img.shields.io/badge/Download-v2.0.4-0ea5e9?style=for-the-badge" /></a>
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer"><img src="https://img.shields.io/github/stars/chenjunwenhao/MySQL-Explorer?style=for-the-badge&color=fbbf24" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.0.4-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
 
 <p align="center" style="margin-top: 12px">
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG 安装包</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases/download/v2.0.4/Surge-2.0.4-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.0.4/Surge-2.0.4-arm64.dmg">
           <img src="https://img.shields.io/badge/下载_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · 便携版，解压即用</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/MySQL-Explorer/releases/download/v2.0.4/Surge-2.0.4-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.0.4/Surge-2.0.4-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/下载_便携版-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>
@@ -217,9 +217,9 @@ electron/             Electron 桌面壳
 ---
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/blob/main/LICENSE">MIT License</a>
+  <a href="https://github.com/chenjunwenhao/Surge/blob/main/LICENSE">MIT License</a>
   &nbsp;&middot;&nbsp;
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer/issues">提交 Issue</a>
+  <a href="https://github.com/chenjunwenhao/Surge/issues">提交 Issue</a>
   &nbsp;&middot;&nbsp;
-  <a href="https://github.com/chenjunwenhao/MySQL-Explorer">Star ⭐</a>
+  <a href="https://github.com/chenjunwenhao/Surge">Star ⭐</a>
 </p>
