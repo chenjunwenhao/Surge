@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.0.4-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.1.0-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG installer</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.0.4/Surge-2.0.4-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-arm64.dmg">
           <img src="https://img.shields.io/badge/Download_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · Portable, unzip and run</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.0.4/Surge-2.0.4-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/Download_Portable-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>
@@ -152,6 +152,7 @@
 - **Selection execution**: Highlight text to run only the selection
 - **Batch execution**: Multiple SQL statements separated by semicolons, results grouped per statement with row count / affected rows / elapsed time
 - Batch results expandable for detailed data view, CSV/JSON export
+- **SQL Generation**: One-click INSERT or UPDATE statements from query results with preview modal and copy-to-clipboard
 - EXPLAIN results shown in separate panel
 
 ### Query History
@@ -207,9 +208,10 @@ npm run electron:build:all
 
 ```
 src/
-  ├── App.jsx         Main app · state management · connection logic
+  ├── App.jsx         Main app
+  ├── hooks/          Custom hooks (autocomplete, sidebar, connections, query execution)
   ├── components/     Sidebar tree · editor · data grid · DDL · indexes · context menu
-  └── utils/          SQL formatter · linter · icons · API client
+  └── utils/          SQL formatter · linter · generator · icons · API client
 server.js             Express backend (20+ API endpoints + connection pool)
 electron/             Electron desktop shell
 ```

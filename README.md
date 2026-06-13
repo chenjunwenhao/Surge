@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.0.4-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.1.0-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG 安装包</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.0.4/Surge-2.0.4-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-arm64.dmg">
           <img src="https://img.shields.io/badge/下载_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · 便携版，解压即用</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.0.4/Surge-2.0.4-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/下载_便携版-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>
@@ -152,6 +152,7 @@
 - **选中执行**：高亮部分 SQL 仅执行选中区域
 - **批量执行**：多条 SQL 分号分隔，结果分组展示，每段标明行数/影响行数/耗时
 - 批量结果可展开查看详细数据，支持 CSV/JSON 导出
+- **SQL 语句生成**：从查询结果一键生成 INSERT 或 UPDATE 语句，弹窗预览并复制
 - EXPLAIN 结果独立面板展示
 
 ### 查询历史
@@ -207,9 +208,10 @@ npm run electron:build:all
 
 ```
 src/
-  ├── App.jsx         主应用 · 状态管理 · 连接逻辑
+  ├── App.jsx         主应用
+  ├── hooks/          自定义 Hook（自动补全、侧边栏、连接管理、查询执行）
   ├── components/     侧边栏树 · 编辑器 · 表格 · DDL · 索引 · 上下文菜单
-  └── utils/          SQL 格式化器 · 检查器 · 图标 · API 客户端
+  └── utils/          SQL 格式化器 · 检查器 · 生成器 · 图标 · API 客户端
 server.js             Express 后端（20+ API 端点 + 连接池）
 electron/             Electron 桌面壳
 ```
