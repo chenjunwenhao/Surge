@@ -320,6 +320,9 @@ export default function TabContent({
               <div className="result-actions">
                 <button className="btn btn-sm" onClick={() => exportResult('csv')} title="Export CSV">CSV</button>
                 <button className="btn btn-sm" onClick={() => exportResult('json')} title="Export JSON">JSON</button>
+                {activeTab.results?.length > 0 && activeTab.fields?.length > 0 && (
+                  <button className="btn btn-sm" onClick={() => generateDml(activeTab.results, activeTab.fields, activeTab.db || activeTab.tName || '', activeTab.pkColumns)} title="Generate INSERT/UPDATE">SQL</button>
+                )}
               </div>
             </div>
             <QueryResultTable rows={activeTab.results} fields={activeTab.fields} error={activeTab.error} />

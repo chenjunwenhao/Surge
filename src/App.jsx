@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { FaGithub } from 'react-icons/fa';
 import api from './utils/api';
 import I from './utils/icons';
-import formatSQL from './utils/sqlFormatter';
 import { scheduleLint } from './utils/sqlLinter';
 import { useToast } from './components/Toast';
 import ConnectionModal from './components/ConnectionModal';
@@ -11,6 +10,11 @@ import QueryPicker from './components/QueryPicker';
 import ContextMenu from './components/ContextMenu';
 import TabContent from './components/TabContent';
 import ConfirmDialog from './components/ConfirmDialog';
+import GenerateSqlModal from './components/GenerateSqlModal';
+import useMonacoAutocomplete from './hooks/useMonacoAutocomplete';
+import useSidebar from './hooks/useSidebar';
+import useConnections from './hooks/useConnections';
+import useQueryExecution from './hooks/useQueryExecution';
 
 /* ==================== MAIN APP ==================== */
 export default function App() {
@@ -40,9 +44,8 @@ export default function App() {
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [batchExpanded, setBatchExpanded] = useState({});
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
-  const [mEditId, setMEditId] = useState(null);
   const [tabCtxMenu, setTabCtxMenu] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [genSqlModal, setGenSqlModal] = useState(null);
 
   /* ----- Theme effect ----- */
   useEffect(() => {
@@ -50,21 +53,8 @@ export default function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  /* ----- Modal state ----- */
-  const [showModal, setShowModal] = useState(false);
-  const [mName, setMName] = useState('');
-  const [mHost, setMHost] = useState('127.0.0.1');
-  const [mPort, setMPort] = useState(3306);
-  const [mUser, setMUser] = useState('root');
-  const [mPass, setMPass] = useState('');
-  const [mDb, setMDb] = useState('');
-  const [mSave, setMSave] = useState(true);
-  const [mTesting, setMTesting] = useState(false);
-  const [mResult, setMResult] = useState(null);
-
   /* ----- Monaco ----- */
   const [edMonaco, setEdMonaco] = useState(null);
-  const cpRef = useRef(null);
   const edRef = useRef(null);
   const monacoRef = useRef(null);
   const rezRef = useRef(null);
@@ -76,8 +66,6 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const instancesRef = useRef(instances);
   instancesRef.current = instances;
-  const suggestCacheRef = useRef({ allTabs: [], allCols: [], allDbs: new Set(), version: 0 });
-  const editOldNameRef = useRef('');
 
   /* ----- Derived ----- */
   const activeTab = openTabs.find(t => t.id === activeTabId) || null;
@@ -89,371 +77,27 @@ export default function App() {
 
   /* ----- Auto-reconnect ----- */
   const lastPingRef = useRef({});
-  const ensureConnected = useCallback(async (instId) => {
-    const inst = instancesRef.current.find(i => i.id === instId);
-    if (!inst || !inst.config) return instId;
-    const now = Date.now();
-    if (lastPingRef.current[instId] && (now - lastPingRef.current[instId]) < 30000) return instId;
-    try {
-      const r = await api(`/api/pool-status?instanceId=${encodeURIComponent(instId)}`);
-      if (r.ok && r.status) { lastPingRef.current[instId] = now; return instId; }
-    } catch (_) { }
-    lastPingRef.current[instId] = now;
-    const newId = `${inst.name}-${Date.now()}`;
-    const cr = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: newId, name: inst.name, save: false, ...inst.config }) });
-    if (!cr.ok) throw new Error(cr.error || 'Reconnect failed');
-    setInstances(p => p.map(i => i.id === instId ? { ...i, id: newId, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {}, dbTables: {}, tableColumns: {}, tableIndexes: {} } : i));
-    setOpenTabs(p => p.map(t => t.instId === instId ? { ...t, instId: newId } : t));
-    return newId;
-  }, []);
 
-  /* ----- API helpers ----- */
-  const doQuery = useCallback(async (instId, sql) => {
-    const r = await api('/api/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: instId, sql }) });
-    return r;
-  }, []);
+  /* ----- Sidebar / data loading ----- */
+  const {
+    ensureConnected, loadDbs, loadTabs, loadCols, loadDDL, loadIdx,
+    refreshInst, refreshDb, toggleInst, toggleDb, toggleTbl,
+  } = useSidebar({ setInstances, setOpenTabs, instancesRef, setStatus, toast, err, lastPingRef, setTreeErrors, setRefreshing });
 
-  const doTx = useCallback(async (instId, action) => {
-    const r = await api('/api/transaction', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: instId, action }) });
-    return r;
-  }, []);
+  /* ----- Query execution ----- */
+  const { doQuery, execQuery, fmtSQL, cancelQuery, explainQuery, txAction } = useQueryExecution({
+    edRef, abortRef, timerRef, instancesRef, selInst,
+    setOpenTabs, setStatus, setRunning, setQueryHistory,
+    activeTab, ensureConnected, loadTabs, err,
+  });
 
-  /* ----- Load saved connections ----- */
-  const loadSaved = useCallback(async () => {
-    const r = await api('/api/connections');
-    if (r.ok) setSavedConns(r.connections || []);
-    else err(r.error);
-  }, [err]);
-
-  useEffect(() => { loadSaved(); }, [loadSaved]);
-
-  /* ----- Load databases for an instance ----- */
-  const loadDbs = useCallback(async (instId) => {
-    const r = await api(`/api/databases?instanceId=${encodeURIComponent(instId)}`);
-    if (r.ok) {
-      setInstances(p => p.map(i => i.id === instId ? { ...i, databases: r.databases || [] } : i));
-    } else {
-      throw new Error(r.error || 'Failed to load databases');
-    }
-  }, []);
-
-  /* ----- Load tables for a database ----- */
-  const loadTabs = useCallback(async (instId, dbName) => {
-    const r = await api(`/api/tables?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}`);
-    if (r.ok) {
-      setInstances(p => p.map(i => {
-        if (i.id !== instId) return i;
-        const kept = new Set((r.tables || []).map(t => t.TABLE_NAME));
-        const et = { ...(i.expandedTables || {}) };
-        let cleaned = false;
-        Object.keys(et).forEach(k => { if (!kept.has(k)) { delete et[k]; cleaned = true; } });
-        return { ...i, dbTables: { ...(i.dbTables || {}), [dbName]: r.tables }, ...(cleaned ? { expandedTables: et } : {}) };
-      }));
-      const tblNames = (r.tables || []).map(t => t.TABLE_NAME);
-      if (tblNames.length === 0) return;
-      (async () => {
-        const BATCH = 5;
-        for (let i = 0; i < tblNames.length; i += BATCH) {
-          const batch = tblNames.slice(i, i + BATCH);
-          try {
-            const results = await Promise.allSettled(
-              batch.map(tn => api(`/api/columns?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(tn)}`))
-            );
-            const columnsMap = {};
-            results.forEach((r, idx) => {
-              if (r.status === 'fulfilled' && r.value?.ok && r.value?.columns) {
-                columnsMap[batch[idx]] = r.value.columns;
-              }
-            });
-            if (Object.keys(columnsMap).length > 0) {
-              setInstances(p => p.map(i => i.id === instId
-                ? { ...i, tableColumns: { ...(i.tableColumns || {}), ...columnsMap } }
-                : i));
-            }
-          } catch (_) { }
-        }
-      })().catch(() => { });
-    } else {
-      throw new Error(r.error || 'Failed to load tables');
-    }
-  }, []);
-
-  /* ----- Load columns ----- */
-  const loadCols = useCallback(async (instId, dbName, table) => {
-    const r = await api(`/api/columns?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
-    if (r.ok) return r.columns;
-    err(r.error); return [];
-  }, [err]);
-
-  /* ----- Load DDL ----- */
-  const loadDDL = useCallback(async (instId, dbName, table) => {
-    const r = await api(`/api/table-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
-    if (r.ok) return r.ddl;
-    err(r.error); return '';
-  }, [err]);
-
-  /* ----- Load Indexes ----- */
-  const loadIdx = useCallback(async (instId, dbName, table) => {
-    const r = await api(`/api/table-indexes?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
-    if (r.ok) return r.indexes;
-    err(r.error); return [];
-  }, [err]);
-
-  /* ----- Modal: test connection ----- */
-  const testConn = useCallback(async () => {
-    setMTesting(true); setMResult(null);
-    const r = await api('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined }) });
-    setMTesting(false); setMResult(r);
-  }, [mHost, mPort, mUser, mPass, mDb]);
-
-  /* ----- Modal: connect / update ----- */
-  const modalConnect = useCallback(async () => {
-    const name = mName || `${mUser}@${mHost}/${mDb || 'mysql'}`;
-    const payload = { host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined };
-
-    // Edit mode: update existing saved connection
-    if (mEditId) {
-      setShowModal(false);
-      setStatus('Updating...');
-      const ur = await api(`/api/connections/${encodeURIComponent(mEditId)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: mName, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || '' }),
-      });
-      if (ur.ok) {
-        setSavedConns(p => p.map(c => c.id === mEditId ? { ...c, name: mName, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || '' } : c));
-        // Update matching connected instance
-        setInstances(p => p.map(i => {
-          if (i.name === editOldNameRef.current) {
-            return { ...i, name: mName, config: payload };
-          }
-          return i;
-        }));
-        setMEditId(null);
-        toast('Connection updated: ' + name, 'success');
-        setStatus('Updated: ' + name);
-      } else {
-        err(ur.error);
-      }
-      return;
-    }
-
-    const existing = instancesRef.current.find(i => i.name === name && i.connected);
-    if (existing) { setStatus('Already connected: ' + name); toast('Already connected: ' + name, 'warning'); setShowModal(false); return; }
-    setShowModal(false);
-    setStatus('Connecting...');
-    const instId = `${name}-${Date.now()}`;
-    const r = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instanceId: instId, name, save: mSave, ...payload }) });
-    if (r.ok) {
-      const inst = { id: instId, name, config: payload, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {} };
-      setInstances(p => [...p, inst]);
-      toast('Connected: ' + name, 'success');
-      setStatus('Connected: ' + name);
-      if (mSave) loadSaved();
-      try {
-        await loadDbs(instId);
-        if (payload.database) {
-          setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { [payload.database]: true } } : i));
-          await loadTabs(instId, payload.database);
-        }
-      } catch (e) {
-        setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
-        setStatus(e.message || 'Failed');
-      }
-    } else err(r.error);
-  }, [mName, mHost, mPort, mUser, mPass, mDb, mSave, mEditId, err, toast, loadSaved, loadDbs, loadTabs]);
-
-  /* ----- Saved connection: connect ----- */
-  const connSaved = useCallback(async (conn) => {
-    const existing = instancesRef.current.find(i => i.name === conn.name && i.connected);
-    if (existing) { setStatus('Already connected: ' + conn.name); return; }
-    const payload = { host: conn.host, port: conn.port || 3306, user: conn.user, password: conn.password || '', database: conn.database };
-    const instId = `${conn.name}-${Date.now()}`;
-    const r = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instanceId: instId, name: conn.name, save: false, ...payload }) });
-    if (r.ok) {
-      const inst = { id: instId, name: conn.name, config: payload, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {} };
-      setInstances(p => [...p, inst]);
-      toast('Connected: ' + conn.name, 'success');
-      setStatus('Connected: ' + conn.name);
-      try {
-        await loadDbs(instId);
-        if (payload.database) {
-          setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { [payload.database]: true } } : i));
-          await loadTabs(instId, payload.database);
-        }
-      } catch (e) {
-        setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
-        setStatus(e.message || 'Failed');
-      }
-    } else err(r.error);
-  }, [err, toast, loadDbs, loadTabs]);
-
-  const delSaved = useCallback(async (id) => {
-    await api(`/api/connections/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    setSavedConns(p => p.filter(c => c.id !== id));
-    toast('Connection removed', 'info');
-  }, [toast]);
-
-  const editSaved = useCallback((conn) => {
-    editOldNameRef.current = conn.name;
-    setMName(conn.name);
-    setMHost(conn.host);
-    setMPort(conn.port || 3306);
-    setMUser(conn.user);
-    setMPass(conn.password || '');
-    setMDb(conn.database || '');
-    setMSave(true);
-    setMResult(null);
-    setMEditId(conn.id);
-    setShowModal(true);
-  }, []);
-
-  /* ----- Refresh instance ----- */
-  const refreshInst = useCallback(async (instId) => {
-    setStatus('Refreshing...');
-    setRefreshing(p => ({ ...p, [instId]: true }));
-    setTreeErrors(p => { const n = { ...p }; delete n[instId]; return n; });
-    try {
-      const effId = await ensureConnected(instId);
-      await loadDbs(effId);
-      const inst = instancesRef.current.find(i => i.id === effId);
-      if (inst?.expanded) {
-        const expDbs = Object.entries(inst.expandedDbs || {}).filter(([, v]) => v).map(([k]) => k);
-        for (const dbName of expDbs) {
-          try { await loadTabs(effId, dbName); } catch (_) {}
-        }
-      }
-      setStatus('Refreshed');
-      toast('Refreshed', 'success');
-    } catch (e) {
-      setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
-      setStatus('Refresh failed');
-    } finally {
-      setRefreshing(p => { const n = { ...p }; delete n[instId]; return n; });
-    }
-  }, [ensureConnected, loadDbs, loadTabs, toast]);
-
-  /* ----- Confirm dialog helper ----- */
-  const askConfirm = useCallback((title, message, confirmLabel) => {
-    return new Promise((resolve) => {
-      setConfirmDialog({ title, message, confirmLabel, resolve });
-    });
-  }, []);
-
-  /* ----- Disconnect instance ----- */
-  const disconnectInst = useCallback(async (instId) => {
-    const instName = instancesRef.current.find(i => i.id === instId)?.name || instId;
-    const ok = await askConfirm('Disconnect', `Disconnect from "${instName}"?`, 'Disconnect');
-    if (!ok) return;
-    setStatus('Disconnecting...');
-    try {
-      const r = await api('/api/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: instId }) });
-      if (r.ok) {
-        setInstances(p => p.map(i => i.id === instId ? { ...i, connected: false, expanded: false, databases: [], expandedDbs: {}, expandedTables: {}, dbTables: {}, tableColumns: {}, tableIndexes: {} } : i));
-        toast('Disconnected: ' + instName, 'info');
-        setStatus('Disconnected');
-      } else {
-        setStatus('Disconnect failed');
-        toast('Disconnect failed', 'error');
-      }
-    } catch (e) {
-      setStatus('Disconnect failed: ' + (e.message || String(e)));
-      toast('Disconnect failed: ' + (e.message || String(e)), 'error');
-    }
-  }, [toast, askConfirm]);
-
-  /* ----- Refresh database ----- */
-  const refreshDb = useCallback(async (instId, dbName) => {
-    setStatus('Refreshing...');
-    const ek = `${instId}/${dbName}`;
-    setRefreshing(p => ({ ...p, [ek]: true }));
-    setTreeErrors(p => { const n = { ...p }; delete n[ek]; return n; });
-    try {
-      const effId = await ensureConnected(instId);
-      await loadTabs(effId, dbName);
-      setStatus('Refreshed');
-      toast('Refreshed', 'success');
-    } catch (e) {
-      setTreeErrors(p => ({ ...p, [ek]: e.message || String(e) }));
-      setStatus('Refresh failed');
-    } finally {
-      setRefreshing(p => { const n = { ...p }; delete n[ek]; return n; });
-    }
-  }, [ensureConnected, loadTabs, toast]);
-
-  /* ----- Tree: toggle instance ----- */
-  const toggleInst = useCallback(async (instId) => {
-    let needLoad = false;
-    setInstances(p => {
-      const inst = p.find(i => i.id === instId);
-      if (inst && !inst.expanded && !inst.databases.length) needLoad = true;
-      return p.map(i => i.id === instId ? { ...i, expanded: !i.expanded } : i);
-    });
-    if (needLoad) {
-      setTreeErrors(p => { const n = { ...p }; delete n[instId]; return n; });
-      const wasConnected = instancesRef.current.find(i => i.id === instId)?.connected;
-      try {
-        const effId = await ensureConnected(instId);
-        if (!wasConnected) toast('Reconnected to ' + (instancesRef.current.find(i => i.id === effId)?.name || 'instance'), 'info');
-        await loadDbs(effId);
-      } catch (e) {
-        setInstances(p => p.map(i => i.id === instId ? { ...i, expanded: false } : i));
-        setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
-      }
-    }
-  }, [ensureConnected, loadDbs, toast]);
-
-  /* ----- Tree: toggle database ----- */
-  const toggleDb = useCallback(async (instId, dbName) => {
-    let needLoad = false;
-    setInstances(p => {
-      const inst = p.find(i => i.id === instId);
-      const isOpen = inst?.expandedDbs?.[dbName];
-      if (!isOpen) needLoad = true;
-      return p.map(i => i.id === instId ? { ...i, expandedDbs: { ...(i.expandedDbs || {}), [dbName]: !isOpen } } : i);
-    });
-    if (needLoad) {
-      const ek = `${instId}/${dbName}`;
-      setTreeErrors(p => { const n = { ...p }; delete n[ek]; return n; });
-      try {
-        const effId = await ensureConnected(instId);
-        await loadTabs(effId, dbName);
-      } catch (e) {
-        setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { ...(i.expandedDbs || {}), [dbName]: false } } : i));
-        setTreeErrors(p => ({ ...p, [ek]: e.message || String(e) }));
-      }
-    }
-  }, [ensureConnected, loadTabs]);
-
-  /* ----- Tree: toggle table ----- */
-  const toggleTbl = useCallback(async (instId, dbName, tName) => {
-    let needCols = false, needIdx = false;
-    setInstances(p => {
-      const inst = p.find(i => i.id === instId);
-      const isOpen = inst?.expandedTables?.[tName];
-      if (!isOpen) {
-        if (!inst?.tableColumns?.[tName]) needCols = true;
-        if (!inst?.tableIndexes?.[tName]) needIdx = true;
-      }
-      return p.map(i => i.id === instId ? { ...i, expandedTables: { ...(i.expandedTables || {}), [tName]: !isOpen } } : i);
-    });
-    if (needCols || needIdx) {
-      const [cols, idxs] = await Promise.all([
-        needCols ? loadCols(instId, dbName, tName) : Promise.resolve(null),
-        needIdx ? loadIdx(instId, dbName, tName) : Promise.resolve(null),
-      ]);
-      setInstances(p => p.map(i => {
-        if (i.id !== instId) return i;
-        const upd = {};
-        if (cols) upd.tableColumns = { ...(i.tableColumns || {}), [tName]: cols };
-        if (idxs) upd.tableIndexes = { ...(i.tableIndexes || {}), [tName]: idxs };
-        return { ...i, ...upd };
-      }));
-    }
-  }, [loadCols, loadIdx]);
+  /* ----- Connections ----- */
+  const {
+    loadSaved, testConn, modalConnect, connSaved, delSaved, editSaved, disconnectInst, askConfirm,
+    showModal, setShowModal, mName, setMName, mHost, setMHost, mPort, setMPort,
+    mUser, setMUser, mPass, setMPass, mDb, setMDb, mSave, setMSave,
+    mTesting, mResult, setMResult, mEditId, setMEditId, confirmDialog, setConfirmDialog,
+  } = useConnections({ setInstances, setSavedConns, setOpenTabs, instancesRef, setStatus, toast, err, setTreeErrors, loadDbs, loadTabs });
 
   /* ----- Open table data tab ----- */
   const openTable = useCallback(async (instId, dbName, tName) => {
@@ -558,143 +202,6 @@ export default function App() {
       return rest;
     });
   }, []);
-
-  /* ----- Execute query ----- */
-  const execQuery = useCallback(async () => {
-    if (!activeTab || activeTab.type !== 'query') return;
-    let sql = edRef.current?.getValue() || activeTab.sql;
-    let isSelection = false;
-    if (edRef.current) {
-      const sel = edRef.current.getSelection();
-      if (sel && !sel.isEmpty()) { sql = edRef.current.getModel().getValueInRange(sel); isSelection = true; }
-    }
-    if (!sql.trim()) return;
-
-    // Cancel previous running query if any
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setQueryHistory(prev => {
-      const next = [{ sql: sql.trim(), ts: Date.now(), instId: activeTab.instId, db: activeTab.db }, ...prev.filter(h => h.sql !== sql.trim())].slice(0, 50);
-      localStorage.setItem('sql-history', JSON.stringify(next));
-      return next;
-    });
-
-    const startTime = Date.now();
-    setStatus('Running... 0ms');
-    setRunning(true);
-    timerRef.current = setInterval(() => {
-      setStatus(`Running... ${Date.now() - startTime}ms`);
-    }, 100);
-    setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: null, batchResults: null, results: null } : t));
-
-    let effInstId = activeTab.instId;
-    try {
-      effInstId = await ensureConnected(activeTab.instId);
-      if (effInstId !== activeTab.instId) {
-        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, instId: effInstId } : t));
-      }
-    } catch (e) {
-      clearTimeout(timerRef.current);
-      abortRef.current = null;
-      setRunning(false);
-      setStatus('Reconnect failed');
-      setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: e.message || String(e), results: null } : t));
-      return;
-    }
-
-    try {
-      const r = await api('/api/query-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: effInstId, sql, database: activeTab.db || '' }), signal: controller.signal });
-
-      if (r.ok && r.results) {
-        let batch = r.results.filter(b => !/^USE\s+`/.test(b.sql || ''));
-        if (batch.length === 0) { setStatus('OK'); return; }
-        const totalRows = batch.reduce((s, x) => s + (x.rows?.length || 0), 0);
-        const totalAffected = batch.reduce((s, x) => s + (x.affectedRows || 0), 0);
-        const hasError = batch.some(x => !x.ok);
-        const statusParts = [];
-        if (totalRows) statusParts.push(`${totalRows} rows`);
-        if (totalAffected) statusParts.push(`${totalAffected} affected`);
-        if (!statusParts.length) statusParts.push('OK');
-        if (isSelection) statusParts.push('[selection]');
-        setStatus(hasError ? 'Error in batch' : statusParts.join(' '));
-        if (batch.length === 1) {
-          const b = batch[0];
-          setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, results: b.ok ? b.rows : null, fields: b.ok ? b.fields : [], error: b.ok ? null : b.error, singleResult: b, batchResults: null } : t));
-        } else {
-          setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, batchResults: batch, results: null, fields: [], error: null, singleResult: null } : t));
-        }
-        const hasSchemaChange = batch.some(b => b.affectedRows !== undefined && b.affectedRows !== null);
-        if (hasSchemaChange && activeTab.db) {
-          loadTabs(effInstId, activeTab.db).catch(() => {});
-        }
-      } else {
-        setStatus('Query failed');
-        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: r.error || 'Unknown error', results: null, batchResults: null } : t));
-      }
-    } catch (e) {
-      if (controller.signal.aborted) {
-        setStatus('Cancelled');
-        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, results: null, batchResults: null, error: null } : t));
-      } else {
-        setStatus('Query failed');
-        setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, error: e.message || String(e), results: null, batchResults: null } : t));
-      }
-    } finally {
-      clearInterval(timerRef.current);
-      if (abortRef.current === controller) abortRef.current = null;
-      setRunning(false);
-    }
-  }, [activeTab, ensureConnected, loadTabs]);
-
-  /* ----- Format SQL ----- */
-  const fmtSQL = useCallback(() => {
-    if (!activeTab || activeTab.type !== 'query' || !edRef.current) return;
-    const sql = edRef.current.getValue();
-    if (!sql.trim()) return;
-    const formatted = formatSQL(sql);
-    edRef.current.setValue(formatted);
-    setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, sql: formatted } : t));
-  }, [activeTab]);
-
-  /* ----- Cancel running query ----- */
-  const cancelQuery = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-  }, []);
-
-  /* ----- Explain query ----- */
-  const explainQuery = useCallback(async () => {
-    if (!activeTab || activeTab.type !== 'query') return;
-    setStatus('Explaining...');
-    const rawSql = (edRef.current?.getValue() || activeTab.sql || '').trim();
-    const sql = rawSql.split(';')[0].trim(); // EXPLAIN only supports single statement
-    if (!sql) { setStatus('No valid SQL to explain'); return; }
-    let effInstId = activeTab.instId;
-    try { effInstId = await ensureConnected(activeTab.instId); } catch (e) {
-      setStatus('Reconnect failed');
-      setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, explainError: e.message || String(e) } : t));
-      return;
-    }
-    const r = await api(`/api/explain?instanceId=${encodeURIComponent(effInstId)}&sql=${encodeURIComponent(sql)}`);
-    if (r.ok) {
-      setStatus('EXPLAIN ready');
-      setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, explainResults: r.explain || [], explainError: null } : t));
-    } else {
-      setStatus('EXPLAIN failed');
-      setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, explainError: r.error, explainResults: null } : t));
-    }
-  }, [activeTab, ensureConnected]);
-
-  /* ----- Transaction ----- */
-  const txAction = useCallback(async (action) => {
-    if (!selInst) { err('No instance selected'); return; }
-    const r = await doTx(selInst.id, action);
-    if (r.ok) setStatus(`TX ${action} OK`);
-    else err(r.error);
-  }, [selInst, doTx, err]);
 
   /* ----- Cell editing ----- */
   const cellEdit = useCallback((tid, ri, cn, val) => {
@@ -801,97 +308,8 @@ export default function App() {
   }, []);
 
   /* ----- Monaco Autocomplete ----- */
-  useEffect(() => {
-    if (!edMonaco) return;
-    if (cpRef.current) cpRef.current.dispose();
+  useMonacoAutocomplete(edMonaco, instancesRef);
 
-    const KW = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'ON', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'IS', 'NULL', 'AS', 'DISTINCT', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'TABLE', 'INDEX', 'VIEW', 'DATABASE', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'EXPLAIN', 'DESC', 'SHOW', 'USE', 'SET', 'BEGIN', 'COMMIT', 'ROLLBACK', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES', 'DEFAULT', 'AUTO_INCREMENT', 'UNIQUE', 'CHECK', 'CASCADE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'ALL', 'INTO', 'VALUES', 'IF'];
-    const FN = ['COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'GROUP_CONCAT', 'COALESCE', 'IFNULL', 'NULLIF', 'IF', 'CAST', 'CONVERT', 'DATE_FORMAT', 'NOW', 'CURDATE', 'CURTIME', 'UNIX_TIMESTAMP', 'FROM_UNIXTIME', 'DATEDIFF', 'TIMESTAMPDIFF', 'CONCAT', 'SUBSTRING', 'SUBSTR', 'REPLACE', 'TRIM', 'UPPER', 'LOWER', 'LENGTH', 'CHAR_LENGTH', 'ROUND', 'FLOOR', 'CEIL', 'ABS', 'MOD', 'RAND', 'UUID', 'MD5', 'SHA1', 'JSON_EXTRACT', 'JSON_UNQUOTE', 'DATE', 'YEAR', 'MONTH', 'DAY'];
-
-    cpRef.current = edMonaco.languages.registerCompletionItemProvider('sql', {
-      triggerCharacters: [' ', '.', ',', '(', ')'],
-      provideCompletionItems: (model, pos) => {
-        try {
-          const word = model.getWordUntilPosition(pos);
-          const wordText = word.word.toLowerCase();
-          const range = { startLineNumber: pos.lineNumber, endLineNumber: pos.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn };
-          const instances = instancesRef.current;
-          const cache = suggestCacheRef.current;
-          const fingerprint = instances.reduce((s, i) => s + '|' + (i.databases?.length || 0) + ':' + Object.keys(i.dbTables || {}).reduce((a, k) => a + (i.dbTables[k]?.length || 0), 0), '');
-          if (cache._fp !== fingerprint) {
-            cache.allTabs = []; cache.allCols = []; cache.allDbs = new Set();
-            instances.forEach(inst => {
-              inst.databases?.forEach(d => cache.allDbs.add(d.name));
-              if (inst.dbTables) Object.entries(inst.dbTables).forEach(([db, tabs]) => tabs.forEach(t => cache.allTabs.push({ name: t.TABLE_NAME, db, type: t.TABLE_TYPE })));
-              if (inst.tableColumns) Object.entries(inst.tableColumns).forEach(([tbl, cols]) => cols.forEach(c => cache.allCols.push({ table: tbl, col: c.COLUMN_NAME, type: c.DATA_TYPE })));
-            });
-            cache._fp = fingerprint;
-          }
-          const { allTabs, allCols, allDbs } = cache;
-
-          const line = model.getLineContent(pos.lineNumber);
-          const before = line.substring(0, pos.column - 1).trim();
-          const beforeUpper = before.toUpperCase();
-          const tokens = beforeUpper.split(/\s+/);
-          const lastToken = tokens[tokens.length - 1] || '';
-
-          const dotIdx = line.lastIndexOf('.', pos.column - 2);
-          let dotTable = '';
-          if (dotIdx >= 0) {
-            const bd = line.substring(0, dotIdx).trim().split(/\s+/);
-            dotTable = (bd[bd.length - 1] || '').replace(/[\`"'[\]]/g, '');
-          }
-
-          const MAX_SUGGESTIONS = 2000;
-          const afterFrom = /\bFROM\s*$/i.test(beforeUpper) || /\bJOIN\s*$/i.test(beforeUpper) || /\bINTO\s*$/i.test(beforeUpper) || /\bUPDATE\s*$/i.test(beforeUpper) || /\bTABLE\s*$/i.test(beforeUpper);
-          const afterSel = /\bSELECT\s*$/i.test(beforeUpper) || /,\s*$/i.test(beforeUpper) || /\bSELECT\s+[^\n]*,\s*$/i.test(beforeUpper);
-          const afterWhere = /\bWHERE\s*$/i.test(beforeUpper) || /\bAND\s*$/i.test(beforeUpper) || /\bOR\s*$/i.test(beforeUpper) || /\bON\s*$/i.test(beforeUpper) || /\bSET\s*$/i.test(beforeUpper) || /\bHAVING\s*$/i.test(beforeUpper) || /\bBY\s*$/i.test(beforeUpper);
-          const typingWord = wordText.length > 0;
-
-          const sug = [];
-
-          if (dotTable) {
-            allCols.filter(c => c.table.toLowerCase() === dotTable.toLowerCase()).forEach(c => sug.push({ label: c.col, kind: edMonaco.languages.CompletionItemKind.Field, insertText: c.col, detail: c.type, range }));
-            if (sug.length) return { suggestions: sug };
-          }
-
-          if (afterFrom) {
-            allTabs.forEach(t => { if (sug.length < MAX_SUGGESTIONS) sug.push({ label: t.name, kind: t.type === 'VIEW' ? edMonaco.languages.CompletionItemKind.Struct : edMonaco.languages.CompletionItemKind.Class, insertText: t.name, detail: `${t.db} \u00B7 ${t.type || 'TABLE'}`, range, sortText: '0' + t.name }); });
-            allDbs.forEach(db => { if (sug.length < MAX_SUGGESTIONS) sug.push({ label: db, kind: edMonaco.languages.CompletionItemKind.Module, insertText: db, detail: 'database', range, sortText: '1' + db }); });
-            if (typingWord) sug.forEach(s => { s.filterText = s.label; });
-            if (sug.length) return { suggestions: sug };
-          }
-
-          if (afterSel) {
-            allCols.forEach(c => { if (sug.length < MAX_SUGGESTIONS) sug.push({ label: c.col, kind: edMonaco.languages.CompletionItemKind.Field, insertText: c.col, detail: `${c.table} \u00B7 ${c.type}`, range, sortText: '0' + c.col }); });
-            allTabs.forEach(t => { if (sug.length < MAX_SUGGESTIONS) sug.push({ label: t.name + '.*', kind: edMonaco.languages.CompletionItemKind.Field, insertText: t.name + '.*', detail: `all columns of ${t.name}`, range, sortText: '2' + t.name }); });
-            if (typingWord) sug.forEach(s => { s.filterText = s.label; });
-            if (sug.length) return { suggestions: sug };
-          }
-
-          if (afterWhere) {
-            allCols.forEach(c => { if (sug.length < MAX_SUGGESTIONS) sug.push({ label: c.col, kind: edMonaco.languages.CompletionItemKind.Field, insertText: c.col, detail: `${c.table} \u00B7 ${c.type}`, range, sortText: '0' + c.col }); });
-            if (typingWord) sug.forEach(s => { s.filterText = s.label; });
-            if (sug.length) return { suggestions: sug };
-          }
-
-          let cnt = 0;
-          allTabs.forEach(t => { if (cnt++ < MAX_SUGGESTIONS) sug.push({ label: t.name, kind: t.type === 'VIEW' ? edMonaco.languages.CompletionItemKind.Struct : edMonaco.languages.CompletionItemKind.Class, insertText: t.name, detail: `${t.db} \u00B7 ${t.type || 'TABLE'}`, range, sortText: '0' + t.name }); });
-          allCols.forEach(c => { if (cnt++ < MAX_SUGGESTIONS) sug.push({ label: c.col, kind: edMonaco.languages.CompletionItemKind.Field, insertText: c.col, detail: `${c.table} \u00B7 ${c.type}`, range, sortText: '1' + c.col }); });
-          allDbs.forEach(db => { if (cnt++ < MAX_SUGGESTIONS) sug.push({ label: db, kind: edMonaco.languages.CompletionItemKind.Module, insertText: db, detail: 'database', range, sortText: '2' + db }); });
-          FN.forEach(fn => { if (cnt++ < MAX_SUGGESTIONS) sug.push({ label: fn, kind: edMonaco.languages.CompletionItemKind.Function, insertText: fn + '()', detail: 'function', range, sortText: 'y' + fn }); });
-          KW.forEach(kw => { if (cnt++ < MAX_SUGGESTIONS) sug.push({ label: kw, kind: edMonaco.languages.CompletionItemKind.Keyword, insertText: kw + ' ', detail: 'keyword', range, sortText: 'z' + kw }); });
-
-          if (typingWord) sug.forEach(s => { if (!s.filterText) s.filterText = s.label; });
-          return { suggestions: sug };
-        } catch (e) {
-          console.error('Completion error:', e);
-          return { suggestions: [] };
-        }
-      },
-    });
-    return () => cpRef.current?.dispose();
-  }, [edMonaco]);
   /* ----- Dismiss tab list menu on outside click ----- */
   useEffect(() => {
     const h = (e) => {
@@ -964,6 +382,11 @@ export default function App() {
       toast('Export failed: ' + (e.message || String(e)), 'error');
     }
   }, [activeTab, openTabs, toast]);
+
+  /* ----- Generate DML ----- */
+  const generateDml = useCallback((rows, fields, tableName, pkColumns) => {
+    setGenSqlModal({ rows, fields, tableName, pkColumns });
+  }, []);
 
   /* ==================== RENDER ==================== */
   return (
@@ -1168,6 +591,8 @@ export default function App() {
             dbPickerSearch={dbPickerSearch}
             setDbPickerSearch={setDbPickerSearch}
             exportResult={exportResult}
+            generateDml={generateDml}
+            toast={toast}
             theme={theme}
           />
         </div>
@@ -1222,6 +647,16 @@ export default function App() {
         confirmLabel={confirmDialog?.confirmLabel || 'Confirm'}
         onConfirm={() => { confirmDialog?.resolve(true); setConfirmDialog(null); }}
         onCancel={() => { confirmDialog?.resolve(false); setConfirmDialog(null); }}
+      />
+
+      <GenerateSqlModal
+        show={!!genSqlModal}
+        rows={genSqlModal?.rows}
+        fields={genSqlModal?.fields}
+        tableName={genSqlModal?.tableName}
+        pkColumns={genSqlModal?.pkColumns}
+        onClose={() => setGenSqlModal(null)}
+        toast={toast}
       />
     </div>
   );
