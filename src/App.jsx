@@ -143,7 +143,11 @@ export default function App() {
     if (r.ok) {
       setInstances(p => p.map(i => {
         if (i.id !== instId) return i;
-        return { ...i, dbTables: { ...(i.dbTables || {}), [dbName]: r.tables } };
+        const kept = new Set((r.tables || []).map(t => t.TABLE_NAME));
+        const et = { ...(i.expandedTables || {}) };
+        let cleaned = false;
+        Object.keys(et).forEach(k => { if (!kept.has(k)) { delete et[k]; cleaned = true; } });
+        return { ...i, dbTables: { ...(i.dbTables || {}), [dbName]: r.tables }, ...(cleaned ? { expandedTables: et } : {}) };
       }));
       const tblNames = (r.tables || []).map(t => t.TABLE_NAME);
       if (tblNames.length === 0) return;
@@ -315,6 +319,13 @@ export default function App() {
     try {
       const effId = await ensureConnected(instId);
       await loadDbs(effId);
+      const inst = instancesRef.current.find(i => i.id === effId);
+      if (inst?.expanded) {
+        const expDbs = Object.entries(inst.expandedDbs || {}).filter(([, v]) => v).map(([k]) => k);
+        for (const dbName of expDbs) {
+          try { await loadTabs(effId, dbName); } catch (_) {}
+        }
+      }
       setStatus('Refreshed');
       toast('Refreshed', 'success');
     } catch (e) {
@@ -323,7 +334,7 @@ export default function App() {
     } finally {
       setRefreshing(p => { const n = { ...p }; delete n[instId]; return n; });
     }
-  }, [ensureConnected, loadDbs, toast]);
+  }, [ensureConnected, loadDbs, loadTabs, toast]);
 
   /* ----- Confirm dialog helper ----- */
   const askConfirm = useCallback((title, message, confirmLabel) => {
@@ -1059,6 +1070,7 @@ export default function App() {
               openTable={openTable}
               toggleTbl={toggleTbl}
               refreshInst={refreshInst}
+              refreshDb={refreshDb}
               disconnectInst={disconnectInst}
               onCtx={onCtx}
             />

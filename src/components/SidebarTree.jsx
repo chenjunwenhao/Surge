@@ -15,6 +15,7 @@ export default function SidebarTree({
   openTable,
   toggleTbl,
   refreshInst,
+  refreshDb,
   disconnectInst,
   onCtx,
 }) {
@@ -86,10 +87,11 @@ export default function SidebarTree({
                     <span className="tree-node-icon">{I.db}</span>
                     <span className="tree-node-label" style={dbMatch ? { fontWeight: 'bold', color: 'var(--accent)' } : {}}>{db.name}</span>
                     <span className="tree-node-badge">{tabs.length}</span>
+                    <span className="tree-node-action" onClick={e => { e.stopPropagation(); refreshDb(inst.id, db.name); }} title="Refresh database">{I.refresh}</span>
                   </div>
-                  {treeErrors[`${inst.id}/${db.name}`] && (
+                  {(treeErrors[`${inst.id}/${db.name}`] || refreshing[`${inst.id}/${db.name}`]) && (
                     <div className="tree-error" style={{ padding: '3px 8px 3px 36px', fontSize: 11, color: 'var(--red)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {treeErrors[`${inst.id}/${db.name}`]}
+                      {refreshing[`${inst.id}/${db.name}`] ? <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} /> : treeErrors[`${inst.id}/${db.name}`]}
                     </div>
                   )}
                   {isOpen && renderDbContent(inst, db, displayRtabs, displayViews, search, dbMatch, expTbls, tblCols, tblIdxs, collapsedGroups, setCollapsedGroups, openConsole, openTable, toggleTbl, onCtx)}
@@ -106,6 +108,7 @@ export default function SidebarTree({
                   <span className="tree-node-icon">{I.db}</span>
                   <span className="tree-node-label">{db.name}</span>
                   <span className="tree-node-badge">{tabs.length}</span>
+                  <span className="tree-node-action" onClick={e => { e.stopPropagation(); refreshDb(inst.id, db.name); }} title="Refresh database">{I.refresh}</span>
                 </div>
                 {(treeErrors[`${inst.id}/${db.name}`] || refreshing[`${inst.id}/${db.name}`]) && (
                   <div className="tree-error" style={{ padding: '3px 8px 3px 36px', fontSize: 11, color: 'var(--red)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -119,7 +122,7 @@ export default function SidebarTree({
         </div>
       );
     });
-  }, [instances, treeSearch, collapsedGroups, treeErrors, refreshing, toggleInst, openConsole, toggleDb, openTable, toggleTbl, refreshInst, disconnectInst, onCtx, setCollapsedGroups]);
+  }, [instances, treeSearch, collapsedGroups, treeErrors, refreshing, toggleInst, openConsole, toggleDb, openTable, toggleTbl, refreshInst, refreshDb, disconnectInst, onCtx, setCollapsedGroups]);
 }
 
 function renderDbContent(inst, db, rtabs, views, search, dbMatch, expTbls, tblCols, tblIdxs, collapsedGroups, setCollapsedGroups, openConsole, openTable, toggleTbl, onCtx) {
