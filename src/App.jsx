@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { FaGithub } from 'react-icons/fa';
 import api from './utils/api';
 import I from './utils/icons';
-import { scheduleLint } from './utils/sqlLinter';
 import { useToast } from './components/Toast';
 import ConnectionModal from './components/ConnectionModal';
 import SidebarTree from './components/SidebarTree';

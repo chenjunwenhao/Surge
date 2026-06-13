@@ -54,6 +54,8 @@ export default function TabContent({
   cancelQuery,
   running,
   exportResult,
+  generateDml,
+  toast,
 }) {
   const [historySearch, setHistorySearch] = useState('');
   const [copiedIdx, setCopiedIdx] = useState(null);
@@ -300,6 +302,9 @@ export default function TabContent({
                     </div>
                     {isExpanded && br.ok && br.isSelect && br.rows?.length > 0 && (
                       <div className="batch-item-body">
+                        <div className="result-actions" style={{ padding: '4px 0' }}>
+                          <button className="btn btn-sm" onClick={() => generateDml(br.rows, br.fields, activeTab.db || '', null)}>SQL</button>
+                        </div>
                         <QueryResultTable rows={br.rows} fields={br.fields} error={null} />
                       </div>
                     )}
