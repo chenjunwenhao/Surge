@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.1.0-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.2.0-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG 安装包</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.2.0/Surge-2.2.0-arm64.dmg">
           <img src="https://img.shields.io/badge/下载_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · 便携版，解压即用</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.2.0/Surge-2.2.0-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/下载_便携版-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>
@@ -91,6 +91,7 @@
 | `Ctrl+Shift+T` | 恢复标签 | 重新打开最近关闭的 Tab |
 | `Escape` | 多场景 | 关闭 History 面板 / 取消单元格编辑 / 清除搜索 |
 | `Enter` | 确认编辑 | 提交当前单元格修改 |
+| `↑` `↓` `Enter` | 侧边栏导航 | 方向键移动节点焦点，Enter 激活当前节点 |
 
 ### 连接管理
 
@@ -102,18 +103,19 @@
 ### 数据库浏览器（侧边栏）
 
 - 展开实例 → 数据库 → 表/视图（Tables/Views 分组）
-- 展开表节点查看列（类型徽章、PK 标识、注释）和索引
+- 展开表节点查看列（类型徽章、PK 标识、注释）、索引和外键关系
 - 侧边栏 **搜索框**（`Ctrl+F`），全拼/模糊匹配库表字段
 - 每个数据库层级都有专属 **Console** 入口
 - 刷新按钮 + 刷新时 **spinner 动画**反馈
 - 断开连接按钮 + 确认弹窗
+- **键盘导航**：`↑` `↓` 移动焦点，`Enter` 激活节点
 
 ### 右键菜单
 
 | 目标 | 菜单项 |
 |---|---|
-| 表 | Edit Data · View DDL · Show Indexes · Refresh · Copy Name · SELECT * FROM |
-| 数据库/实例 | Open Console · Refresh · Copy Name · Disconnect（实例） |
+| 表 | Edit Data · View DDL · Show Indexes · Refresh · Import Data · Export Dump (.sql) · Copy Name · SELECT * FROM |
+| 数据库/实例 | Open Console · Refresh · Export Dump (.sql) · Copy Name · Disconnect（实例） |
 
 ### Tab 管理
 
@@ -142,6 +144,9 @@
 | Begin / Commit / Rollback | 事务控制 |
 | Cancel | 取消正在运行的查询 |
 | History ⌛ | 查询历史面板（`Ctrl+H`），带数量徽章 |
+| Snippets 📋 | 保存的查询片段列表，按名称/内容搜索，单击加载到编辑器 |
+| 💾 | 将当前 SQL 保存为 Snippet（输入名称） |
+| – <N> + | 编辑器字体大小调节（10-24px）|
 | ↩ | 恢复关闭标签（`Ctrl+Shift+T`）|
 | Format | SQL 格式化 |
 | Explain | 查询执行计划（`Ctrl+Shift+Enter`）|
@@ -149,10 +154,11 @@
 
 ### 查询结果 & 批量执行
 
-- **选中执行**：高亮部分 SQL 仅执行选中区域
+- **选中执行 / 光标执行**：高亮部分 SQL 仅执行选中区域；未选中时自动识别光标所在语句边界
 - **批量执行**：多条 SQL 分号分隔，结果分组展示，每段标明行数/影响行数/耗时
-- 批量结果可展开查看详细数据，支持 CSV/JSON 导出
+- 批量结果可展开查看详细数据，支持 CSV / JSON / XLSX 导出
 - **SQL 语句生成**：从查询结果一键生成 INSERT 或 UPDATE 语句，弹窗预览并复制
+- **右键 Copy as INSERT**：结果表格右键 → Copy Row as INSERT，一键复制整行 INSERT 语句
 - EXPLAIN 结果独立面板展示
 
 ### 查询历史
@@ -175,6 +181,15 @@
   - NULL 值灰色斜体显示
 - **DDL 面板**：Monaco 语法高亮展示 CREATE TABLE 完整语句
 - **Indexes 面板**：名称、列、唯一性、类型一览
+
+### 数据导入
+
+- 右键表 → **Import Data** 打开导入弹窗
+- 支持 **CSV**（引号、转义、多行字段）和 **JSON**（对象数组）格式
+- **拖拽上传**或点击选择文件
+- **列映射预览**：自动检测表头，列名可编辑，前 10 行预览
+- 分批 **INSERT** 写入，每批 200 行，实时进度显示
+- 导入完成显示成功/失败统计
 
 ### 主题 & 布局
 
@@ -210,8 +225,8 @@ npm run electron:build:all
 src/
   ├── App.jsx         主应用
   ├── hooks/          自定义 Hook（自动补全、侧边栏、连接管理、查询执行）
-  ├── components/     侧边栏树 · 编辑器 · 表格 · DDL · 索引 · 上下文菜单
-  └── utils/          SQL 格式化器 · 检查器 · 生成器 · 图标 · API 客户端
+  ├── components/     侧边栏树 · 编辑器 · 表格 · DDL · 索引 · 上下文菜单 · 导入弹窗
+  └── utils/          SQL 格式化器 · 检查器 · 生成器 · CSV解析 · 图标 · API 客户端
 server.js             Express 后端（20+ API 端点 + 连接池）
 electron/             Electron 桌面壳
 ```

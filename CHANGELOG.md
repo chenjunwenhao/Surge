@@ -1,0 +1,75 @@
+# Changelog
+
+## [2.2.0] — 2026-06-24
+
+### Added
+- **AI 开发辅助文档**：新增 `CLAUDE.md` 和 `AGENTS.md`，提供完整的项目架构说明、API 端点清单、数据流示例和开发规范，方便 AI 辅助工具理解项目结构
+
+## [2.1.0] — 2026-06-13
+
+### Added
+- **数据导入（CSV/JSON）**：右键表 → Import Data，拖拽 CSV/JSON 文件即可批量导入。支持列映射预览、拖拽上传、进度显示、分批 INSERT 写入
+- **查询收藏（Snippets）**：编辑器工具栏新增保存/加载按钮，SQL 片段持久化到 localStorage，按名称或内容搜索
+- **外键展示**：展开表节点可查看 Foreign Keys 分组，显示引用的表和列
+- **标签页会话恢复**：关闭应用后重新打开自动恢复上次的 Tab 结构
+- **编辑器字体大小**：工具栏 + / – 按钮调节 Monaco 编辑区字号（10-24px），设置持久化
+- **光标处执行语句**：未选中文本时自动识别光标所在 SQL 语句边界，只执行当前语句
+- **结果右键 Copy as INSERT**：查询结果表格右键 → Copy Row as INSERT 一键复制整行数据的 INSERT 语句
+- **侧边栏键盘导航**：方向键 ↑↓ 在数据库树节点间移动，Enter 激活当前节点
+- **导出 Dump (.sql)**：右键表或数据库 → Export Dump，生成包含 CREATE TABLE + INSERT INTO 的完整 SQL 导出文件
+- **导出 Excel (.xlsx)**：结果面板新增 XLSX 按钮，支持将查询/表数据导出为 Excel 格式
+- **SQL 语句生成**：查询结果面板新增 `SQL` 按钮，支持一键生成 INSERT 或 UPDATE 语句，弹窗预览并复制到剪贴板
+- 表名列自动填充、WHERE 列勾选（INSERT/UPDATE 模式切换）
+
+### Changed
+- **架构重构**：App.jsx 从 1228 行精简至 654 行（-47%）
+  - 抽取 4 个自定义 Hook：`useMonacoAutocomplete`、`useSidebar`、`useConnections`、`useQueryExecution`
+  - 代码模块化，职责清晰，可维护性大幅提升
+- 仓库更名为 **Surge**（原 MySQL-Explorer），GitHub 地址更新为 `github.com/chenjunwenhao/Surge`
+
+### Fixed
+- 修复 SQL 生成弹窗 `setMResult` 缺失导致崩溃
+- 修复 TabContent 组件 `generateDml` / `toast` props 丢失导致按钮无响应
+- 清理 App.jsx 废 import（`scheduleLint`）
+
+---
+
+## [2.0.4] — 2026-06-12
+
+### Added
+- 自定义确认弹窗替换原生 `alert`（`ConfirmDialog` 组件）
+- 查询历史增加复制 SQL 按钮
+- README 添加完整帮助文档
+
+### Changed
+- 历史面板交互全面优化（搜索、删除、复用时保留上下文）
+- 表头排序增加第三态恢复原始顺序
+- 表头列名/类型分行展示
+
+### Fixed
+- API 请求空响应导致 JSON parse 崩溃
+- EXPLAIN 只取首条语句发送
+- 查询计时器与终止按钮状态修复
+- Tab 快捷关闭、刷新/断开交互优化
+- TableDataGrid 表头列名类型分行展示未生效
+- TabContent 缺少 `running` prop 导致崩溃
+- 编辑器/结果面板拆分使用 flex-grow 布局自适应
+- DDL 执行后自动刷新侧边栏树
+- README 下载链接文件名更正
+
+---
+
+## [2.0.0] — 2026-06-11
+
+### Added
+- 初始版本发布
+- MySQL 连接管理（多实例、连接池、自动重连）
+- 数据库浏览器（实例 → 数据库 → 表/视图树）
+- SQL 编辑器（Monaco + 上下文智能补全 + 实时检查 + 格式化）
+- 查询执行（批量执行、EXPLAIN、事务控制）
+- 表数据编辑（单元格原地编辑、批量保存）
+- DDL / Indexes 查看
+- CSV / JSON 导出
+- 查询历史记录
+- 暗色/亮色主题
+- 侧边栏与结果面板拖拽调整大小

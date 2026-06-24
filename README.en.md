@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.1.0-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.2.0-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG installer</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.2.0/Surge-2.2.0-arm64.dmg">
           <img src="https://img.shields.io/badge/Download_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · Portable, unzip and run</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.1.0/Surge-2.1.0-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.2.0/Surge-2.2.0-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/Download_Portable-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>
@@ -91,6 +91,7 @@
 | `Ctrl+Shift+T` | Reopen tab | Restore the last closed tab |
 | `Escape` | Multi-purpose | Close History / cancel cell edit / clear search |
 | `Enter` | Confirm edit | Commit current cell modification |
+| `↑` `↓` `Enter` | Sidebar nav | Arrow keys to move tree node focus, Enter to activate |
 
 ### Connection Management
 
@@ -102,18 +103,19 @@
 ### Database Explorer (Sidebar)
 
 - Expand instance → databases → tables/views (grouped: Tables / Views)
-- Expand a table to see columns (type badges, PK indicators, comments) and indexes
+- Expand a table to see columns (type badges, PK indicators, comments), indexes, and foreign keys
 - Sidebar **search box** (`Ctrl+F`) with pinyin and fuzzy matching
 - Each database level has a dedicated **Console** entry point
 - Refresh button with **spinner animation** feedback
 - Disconnect button with confirmation dialog
+- **Keyboard navigation**: `↑` `↓` to move focus, `Enter` to activate
 
 ### Context Menu
 
 | Target | Menu Items |
 |---|---|
-| Table | Edit Data · View DDL · Show Indexes · Refresh · Copy Name · SELECT * FROM |
-| Database/Instance | Open Console · Refresh · Copy Name · Disconnect (instance) |
+| Table | Edit Data · View DDL · Show Indexes · Refresh · Import Data · Export Dump (.sql) · Copy Name · SELECT * FROM |
+| Database/Instance | Open Console · Refresh · Export Dump (.sql) · Copy Name · Disconnect (instance) |
 
 ### Tab Management
 
@@ -142,6 +144,9 @@
 | Begin / Commit / Rollback | Transaction control |
 | Cancel | Cancel running query |
 | History ⌛ | Query History panel (`Ctrl+H`), with count badge |
+| Snippets 📋 | Saved query snippet list, search by name/SQL, click to load |
+| 💾 | Save current SQL as a snippet (enter name) |
+| – <N> + | Editor font size adjustment (10-24px) |
 | ↩ | Reopen closed tab (`Ctrl+Shift+T`) |
 | Format | SQL formatting |
 | Explain | Query execution plan (`Ctrl+Shift+Enter`) |
@@ -149,10 +154,11 @@
 
 ### Query Results & Batch Execution
 
-- **Selection execution**: Highlight text to run only the selection
+- **Selection / cursor execution**: Highlight to run selection only; auto-detect statement at cursor when nothing selected
 - **Batch execution**: Multiple SQL statements separated by semicolons, results grouped per statement with row count / affected rows / elapsed time
-- Batch results expandable for detailed data view, CSV/JSON export
+- Batch results expandable for detailed data view, CSV / JSON / XLSX export
 - **SQL Generation**: One-click INSERT or UPDATE statements from query results with preview modal and copy-to-clipboard
+- **Copy Row as INSERT**: Right-click on result row to copy the full INSERT statement
 - EXPLAIN results shown in separate panel
 
 ### Query History
@@ -175,6 +181,15 @@
   - NULL values shown in gray italic
 - **DDL panel**: Monaco syntax-highlighted CREATE TABLE
 - **Indexes panel**: Name, columns, uniqueness, type at a glance
+
+### Data Import
+
+- Right-click any table → **Import Data** to open the import dialog
+- Supports **CSV** (quoted fields, escapes, multiline) and **JSON** (array of objects)
+- **Drag & drop** or click to select a file
+- **Column mapping preview**: auto-detect headers, editable column names, first 10 rows preview
+- Batch **INSERT** in chunks of 200 rows, with real-time progress
+- Success/failure summary after import
 
 ### Themes & Layout
 
@@ -210,8 +225,8 @@ npm run electron:build:all
 src/
   ├── App.jsx         Main app
   ├── hooks/          Custom hooks (autocomplete, sidebar, connections, query execution)
-  ├── components/     Sidebar tree · editor · data grid · DDL · indexes · context menu
-  └── utils/          SQL formatter · linter · generator · icons · API client
+  ├── components/     Sidebar tree · editor · data grid · DDL · indexes · context menu · import dialog
+  └── utils/          SQL formatter · linter · generator · CSV parser · icons · API client
 server.js             Express backend (20+ API endpoints + connection pool)
 electron/             Electron desktop shell
 ```
