@@ -324,30 +324,36 @@ export default function App() {
     setOpenTabs(p => p.map(t => {
       if (t.id !== tid) return t;
       const rows = [...(t.rows || [])]; rows[ri] = { ...rows[ri], [cn]: val };
-      return { ...t, rows, dirtyRows: { ...(t.dirtyRows || {}), [ri]: true } };
+      return { ...t, rows, dirtyRows: { ...(t.dirtyRows || {}), [ri]: { ...((t.dirtyRows || {})[ri] || {}), [cn]: true } } };
     }));
   }, []);
 
   const saveRow = useCallback(async (tab) => {
-    if (!tab.pkColumns?.length) { err('No primary key'); return; }
-    const keys = Object.keys(tab.dirtyRows || {});
-    if (!keys.length) return;
+    if (!tab.pkColumns?.length) { err('No primary key — cannot save'); return; }
+    const dirtyEntries = Object.entries(tab.dirtyRows || {});
+    if (!dirtyEntries.length) return;
     setStatus('Saving...');
     let saved = 0, failed = 0;
-    for (const key of keys) {
+    const lastError = { msg: '' };
+    for (const [key, dirtyCols] of dirtyEntries) {
       const ri = Number(key);
       const row = tab.rows[ri];
       if (!row) continue;
       const pk = {};
       tab.pkColumns.forEach(c => { pk[c] = row[c]; });
+      // Only include columns that were actually edited
       const ups = {};
-      tab.columns.forEach(c => { if (!tab.pkColumns.includes(c.COLUMN_NAME)) ups[c.COLUMN_NAME] = row[c.COLUMN_NAME]; });
+      const changedColNames = Object.keys(dirtyCols || {});
+      changedColNames.forEach(cn => {
+        if (!tab.pkColumns.includes(cn)) ups[cn] = row[cn];
+      });
+      if (!Object.keys(ups).length) continue; // no non-PK columns changed
       try {
         const r = await api('/api/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ instanceId: tab.instId, table: tab.tName, pk, updates: ups }) });
+          body: JSON.stringify({ instanceId: tab.instId, database: tab.dbName, table: tab.tName, pk, updates: ups }) });
         if (r.ok) saved++;
-        else failed++;
-      } catch (_) { failed++; }
+        else { failed++; lastError.msg = r.error || 'Unknown error'; }
+      } catch (e) { failed++; lastError.msg = e.message || String(e); }
     }
     if (failed === 0) {
       setStatus('Rows saved: ' + saved);
@@ -355,7 +361,8 @@ export default function App() {
       setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, dirtyRows: {} } : t));
     } else {
       setStatus(`Saved ${saved}, ${failed} failed`);
-      toast(`Saved ${saved}, ${failed} failed`, failed === keys.length ? 'error' : 'warning');
+      const detail = lastError.msg ? ` — ${lastError.msg}` : '';
+      toast(`Saved ${saved}, ${failed} failed${detail}`, failed === dirtyEntries.length ? 'error' : 'warning');
       if (saved > 0) setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, dirtyRows: {} } : t));
     }
   }, [err, toast]);

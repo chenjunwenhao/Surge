@@ -553,15 +553,18 @@ function escapeId(id) {
 app.post('/api/edit', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
-    const { table, pk, updates } = req.body;
+    const { database, table, pk, updates } = req.body;
     if (!table || !pk || !updates) return res.status(400).json({ error: 'table, pk, updates required' });
     const whereKeys = Object.keys(pk);
+    if (!whereKeys.length) return res.status(400).json({ error: 'primary key required' });
     const whereClauses = whereKeys.map((k) => `${escapeId(k)} = ?`).join(' AND ');
     const whereValues = whereKeys.map((k) => pk[k]);
     const setKeys = Object.keys(updates);
+    if (!setKeys.length) return res.status(400).json({ error: 'no columns to update' });
     const setClauses = setKeys.map((k) => `${escapeId(k)} = ?`).join(', ');
     const setValues = setKeys.map((k) => updates[k]);
-    const sql = `UPDATE ${escapeId(table)} SET ${setClauses} WHERE ${whereClauses}`;
+    const fullTable = database ? `${escapeId(database)}.${escapeId(table)}` : escapeId(table);
+    const sql = `UPDATE ${fullTable} SET ${setClauses} WHERE ${whereClauses}`;
     const params = [...setValues, ...whereValues];
     const result = await db.execute(instanceId, sql, params);
     res.json({ ok: true, affectedRows: result.rows.affectedRows || 0 });
