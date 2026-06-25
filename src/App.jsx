@@ -10,6 +10,7 @@ import ContextMenu from './components/ContextMenu';
 import TabContent from './components/TabContent';
 import ConfirmDialog from './components/ConfirmDialog';
 import GenerateSqlModal from './components/GenerateSqlModal';
+import ImportModal from './components/ImportModal';
 import useMonacoAutocomplete from './hooks/useMonacoAutocomplete';
 import useSidebar from './hooks/useSidebar';
 import useConnections from './hooks/useConnections';
@@ -43,14 +44,79 @@ export default function App() {
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [batchExpanded, setBatchExpanded] = useState({});
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+  const [fontSize, setFontSize] = useState(() => {
+    const saved = localStorage.getItem('editor-font-size');
+    return saved ? parseInt(saved, 10) : 14;
+  });
   const [tabCtxMenu, setTabCtxMenu] = useState(null);
   const [genSqlModal, setGenSqlModal] = useState(null);
+  const [importModal, setImportModal] = useState(null);
+  const [sidebarFocusIdx, setSidebarFocusIdx] = useState(null);
+  const sidebarScrollRef = useRef(null);
+
+  /* ----- Font size persist ----- */
+  useEffect(() => {
+    localStorage.setItem('editor-font-size', fontSize);
+  }, [fontSize]);
+
+  /* ----- Tab session restore ----- */
+  useEffect(() => {
+    // Restore tabs on mount (light-weight: only structure, no data)
+    try {
+      const saved = localStorage.getItem('session-tabs');
+      if (saved) {
+        const tabs = JSON.parse(saved);
+        if (Array.isArray(tabs) && tabs.length > 0) {
+          const restored = tabs.map(t => ({
+            ...t,
+            results: null, fields: [], error: null,
+            rows: [], columns: [], pkColumns: [], dirtyRows: {},
+            loading: false, ddl: '', indexes: [],
+          }));
+          setOpenTabs(restored);
+          // Don't auto-activate - user may want to start fresh
+        }
+        // Clear after restore to avoid stale data
+        localStorage.removeItem('session-tabs');
+      }
+    } catch (_) {}
+  }, []); // runs once on mount
+
+  // Save tab structure on change (for next session)
+  useEffect(() => {
+    if (openTabs.length === 0) return;
+    // Only save structural info, not heavy data
+    const slim = openTabs.map(t => ({
+      id: t.id,
+      type: t.type,
+      title: t.title,
+      instId: t.instId,
+      db: t.db,
+      dbName: t.dbName,
+      tName: t.tName,
+      subTab: t.subTab,
+      sql: t.sql,
+    }));
+    try { localStorage.setItem('session-tabs', JSON.stringify(slim)); } catch (_) {}
+  }, [openTabs]);
 
   /* ----- Theme effect ----- */
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
+
+  /* ----- Sidebar tree keyboard focus ----- */
+  useEffect(() => {
+    const container = sidebarScrollRef.current;
+    if (!container) return;
+    const nodes = container.querySelectorAll('.tree-node');
+    nodes.forEach(n => n.classList.remove('tree-focused'));
+    if (sidebarFocusIdx !== null && nodes[sidebarFocusIdx]) {
+      nodes[sidebarFocusIdx].classList.add('tree-focused');
+      nodes[sidebarFocusIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [sidebarFocusIdx, instances, treeSearch, collapsedGroups]);
 
   /* ----- Monaco ----- */
   const [edMonaco, setEdMonaco] = useState(null);
@@ -79,7 +145,8 @@ export default function App() {
 
   /* ----- Sidebar / data loading ----- */
   const {
-    ensureConnected, loadDbs, loadTabs, loadCols, loadDDL, loadIdx,
+    ensureConnected, loadDbs, loadTabs, loadCols, loadDDL, loadIdx, loadFKs,
+    loadRoutines, loadTriggers, loadRoutineDDL, loadTriggerDDL,
     refreshInst, refreshDb, toggleInst, toggleDb, toggleTbl,
   } = useSidebar({ setInstances, setOpenTabs, instancesRef, setStatus, toast, err, lastPingRef, setTreeErrors, setRefreshing });
 
@@ -96,6 +163,7 @@ export default function App() {
     showModal, setShowModal, mName, setMName, mHost, setMHost, mPort, setMPort,
     mUser, setMUser, mPass, setMPass, mDb, setMDb, mSave, setMSave,
     mTesting, mResult, setMResult, mEditId, setMEditId, confirmDialog, setConfirmDialog,
+    connecting,
   } = useConnections({ setInstances, setSavedConns, setOpenTabs, instancesRef, setStatus, toast, err, setTreeErrors, loadDbs, loadTabs });
 
   /* ----- Open table data tab ----- */
@@ -109,16 +177,65 @@ export default function App() {
     if (openTabs.find(t => t.id === tid)) { setActiveTabId(tid); return; }
     const nt = { id: tid, type: 'table', title: tName, instId: effInstId, dbName, tName, subTab: 'data', loading: true };
     setOpenTabs(p => [...p, nt]); setActiveTabId(tid);
-    const [cols, qr, ddl, idx] = await Promise.all([
-      loadCols(effInstId, dbName, tName),
-      doQuery(effInstId, `SELECT * FROM \`${dbName}\`.\`${tName}\` LIMIT 10000`),
-      loadDDL(effInstId, dbName, tName),
-      loadIdx(effInstId, dbName, tName),
-    ]);
-    const pks = cols.filter(c => c.COLUMN_KEY === 'PRI').map(c => c.COLUMN_NAME);
-    setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, columns: cols, rows: qr.ok ? qr.rows : [], fields: qr.ok ? qr.fields : [], pkColumns: pks, dirtyRows: {}, ddl, indexes: idx } : t));
-    setStatus(`${tName} — ${qr.rows?.length || 0} rows`);
-  }, [openTabs, loadCols, doQuery, loadDDL, loadIdx, ensureConnected]);
+    try {
+      const [cols, qr, ddl, idx, fks] = await Promise.all([
+        loadCols(effInstId, dbName, tName),
+        doQuery(effInstId, `SELECT * FROM \`${dbName}\`.\`${tName}\` LIMIT 10000`),
+        loadDDL(effInstId, dbName, tName),
+        loadIdx(effInstId, dbName, tName),
+        loadFKs(effInstId, dbName, tName),
+      ]);
+      const pks = cols.filter(c => c.COLUMN_KEY === 'PRI').map(c => c.COLUMN_NAME);
+      setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, columns: cols, rows: qr.ok ? qr.rows : [], fields: qr.ok ? qr.fields : [], pkColumns: pks, dirtyRows: {}, ddl, indexes: idx, foreignKeys: fks } : t));
+      setStatus(`${tName} — ${qr.rows?.length || 0} rows`);
+    } catch (e) {
+      setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, error: e.message || String(e) } : t));
+      setStatus(`Failed to open ${tName}: ${e.message || String(e)}`);
+    }
+  }, [openTabs, loadCols, doQuery, loadDDL, loadIdx, loadFKs, ensureConnected]);
+
+  /* ----- Open routine DDL tab ----- */
+  const openRoutine = useCallback(async (instId, dbName, name, type) => {
+    const label = type === 'FUNCTION' ? 'Function' : 'Procedure';
+    let effInstId = instId;
+    try { effInstId = await ensureConnected(instId); } catch (e) {
+      setStatus('Reconnect failed: ' + (e.message || String(e)));
+      return;
+    }
+    const tid = `routine:${effInstId}:${dbName}:${name}`;
+    if (openTabs.find(t => t.id === tid)) { setActiveTabId(tid); return; }
+    const nt = { id: tid, type: 'table', title: `${label}-${name}`, instId: effInstId, dbName, tName: name, subTab: 'ddl', ddl: '', loading: true, columns: [], rows: [], pkColumns: [], dirtyRows: {}, indexes: [], objectType: 'routine' };
+    setOpenTabs(p => [...p, nt]); setActiveTabId(tid);
+    try {
+      const ddl = await loadRoutineDDL(effInstId, dbName, name, type);
+      setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, ddl } : t));
+      setStatus(`${label} — ${name}`);
+    } catch (e) {
+      setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, error: e.message || String(e) } : t));
+      setStatus(`Failed to open ${name}: ${e.message || String(e)}`);
+    }
+  }, [openTabs, loadRoutineDDL, ensureConnected]);
+
+  /* ----- Open trigger DDL tab ----- */
+  const openTrigger = useCallback(async (instId, dbName, name) => {
+    let effInstId = instId;
+    try { effInstId = await ensureConnected(instId); } catch (e) {
+      setStatus('Reconnect failed: ' + (e.message || String(e)));
+      return;
+    }
+    const tid = `trigger:${effInstId}:${dbName}:${name}`;
+    if (openTabs.find(t => t.id === tid)) { setActiveTabId(tid); return; }
+    const nt = { id: tid, type: 'table', title: `Trigger-${name}`, instId: effInstId, dbName, tName: name, subTab: 'ddl', ddl: '', loading: true, columns: [], rows: [], pkColumns: [], dirtyRows: {}, indexes: [], objectType: 'trigger' };
+    setOpenTabs(p => [...p, nt]); setActiveTabId(tid);
+    try {
+      const ddl = await loadTriggerDDL(effInstId, dbName, name);
+      setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, ddl } : t));
+      setStatus(`Trigger — ${name}`);
+    } catch (e) {
+      setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, error: e.message || String(e) } : t));
+      setStatus(`Failed to open ${name}: ${e.message || String(e)}`);
+    }
+  }, [openTabs, loadTriggerDDL, ensureConnected]);
 
   const openTabsRef = useRef(openTabs);
   openTabsRef.current = openTabs;
@@ -243,6 +360,7 @@ export default function App() {
     }
   }, [err, toast]);
 
+  /* ----- Refresh table data tab ----- */
   const refreshTab = useCallback(async (tab) => {
     setStatus('Refreshing...');
     setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: true } : t));
@@ -264,6 +382,58 @@ export default function App() {
       setStatus(`Refresh failed: ${e.message || String(e)}`);
     }
   }, [doQuery, loadCols]);
+
+  /* ----- Insert row ----- */
+  const insertRow = useCallback(async (tab, row) => {
+    if (!tab.tName) { err('No table'); return; }
+    setStatus('Inserting...');
+    try {
+      const r = await api('/api/insert', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceId: tab.instId, table: `${tab.dbName}.${tab.tName}`, row }) });
+      if (r.ok) {
+        toast('Row inserted', 'success');
+        setStatus('Row inserted');
+        // Refresh the table data
+        refreshTab(tab);
+      } else {
+        err(r.error || 'Insert failed');
+        setStatus('Insert failed');
+      }
+    } catch (e) {
+      err('Insert failed: ' + (e.message || String(e)));
+      setStatus('Insert failed');
+    }
+  }, [err, toast, refreshTab]);
+
+  /* ----- Delete rows ----- */
+  const deleteRows = useCallback(async (tab, rowIndices) => {
+    if (!tab.pkColumns?.length) { err('No primary key — cannot delete safely'); return; }
+    if (!rowIndices?.length) return;
+    const selRows = rowIndices.map(i => tab.rows[i]).filter(Boolean);
+    if (!selRows.length) return;
+    setStatus('Deleting...');
+    let deleted = 0, failed = 0;
+    for (const row of selRows) {
+      const pk = {};
+      tab.pkColumns.forEach(c => { pk[c] = row[c]; });
+      try {
+        const r = await api('/api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instanceId: tab.instId, table: `${tab.dbName}.${tab.tName}`, pk }) });
+        if (r.ok) deleted++;
+        else failed++;
+      } catch (_) { failed++; }
+    }
+    if (failed === 0) {
+      setStatus('Rows deleted: ' + deleted);
+      toast(deleted + ' row(s) deleted', 'success');
+      // Refresh the table data
+      refreshTab(tab);
+    } else {
+      setStatus(`Deleted ${deleted}, ${failed} failed`);
+      toast(`Deleted ${deleted}, ${failed} failed`, failed === rowIndices.length ? 'error' : 'warning');
+      if (deleted > 0) refreshTab(tab);
+    }
+  }, [err, toast, refreshTab]);
 
   /* ----- Sub-tab switch ----- */
   const setSub = useCallback((tid, st) => setOpenTabs(p => p.map(t => t.id === tid ? { ...t, subTab: st } : t)), []);
@@ -382,6 +552,40 @@ export default function App() {
     }
   }, [activeTab, openTabs, toast]);
 
+  /* ----- Export Dump ----- */
+  const onDump = useCallback(async (instId, dbName, tName, mode = 'all') => {
+    const modeLabel = { all: 'Structure + Data', structure: 'Structure Only', data: 'Data Only' }[mode] || mode;
+    const label = tName ? `${tName}` : dbName;
+    try {
+      setStatus(`Exporting dump (${modeLabel}) for ${label}...`);
+      toast(`Exporting dump (${modeLabel}) for ${label}...`);
+      const resp = await fetch('/api/dump', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceId: instId, database: dbName, table: tName || undefined, mode }),
+      });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.error || `Export failed (${resp.status})`);
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      let suffix = '';
+      if (mode === 'structure') suffix = '_structure';
+      else if (mode === 'data') suffix = '_data';
+      a.download = tName ? `${dbName}_${tName}${suffix}.sql` : `${dbName}${suffix}_dump.sql`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus(`Dump exported (${modeLabel}): ${label}`);
+      toast(`Dump exported (${modeLabel}): ${label}`, 'success');
+    } catch (e) {
+      setStatus(`Dump failed: ${e.message}`);
+      toast('Dump failed: ' + (e.message || String(e)), 'error');
+    }
+  }, [toast]);
+
   /* ----- Generate DML ----- */
   const generateDml = useCallback((rows, fields, tableName, pkColumns) => {
     setGenSqlModal({ rows, fields, tableName, pkColumns });
@@ -460,6 +664,12 @@ export default function App() {
             )}
           </div>
           <div className="tree-scroll">
+            {connecting && (
+              <div className="connecting-indicator">
+                <div className="spinner" />
+                <span>Connecting to {connecting}...</span>
+              </div>
+            )}
             <div className="sidebar-section-header" style={{ padding: '8px 12px', cursor: 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Database Explorer</span>
               {instances.length > 0 && <button className="btn-icon" onClick={() => instances.forEach(inst => refreshInst(inst.id))} title="Refresh all (Ctrl+R)">{I.refresh}</button>}
@@ -479,9 +689,31 @@ export default function App() {
                 )}
               </div>
             )}
+            <div ref={sidebarScrollRef} onKeyDown={(e) => {
+              const container = sidebarScrollRef.current;
+              if (!container) return;
+              // Only handle keys when tree area has focus (not search input)
+              if (e.target.closest('input, textarea')) return;
+              const nodes = container.querySelectorAll('.tree-node');
+              if (nodes.length === 0) return;
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const next = sidebarFocusIdx === null ? 0 : Math.min(sidebarFocusIdx + 1, nodes.length - 1);
+                setSidebarFocusIdx(next);
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prev = sidebarFocusIdx === null ? nodes.length - 1 : Math.max(sidebarFocusIdx - 1, 0);
+                setSidebarFocusIdx(prev);
+              } else if (e.key === 'Enter' && sidebarFocusIdx !== null && nodes[sidebarFocusIdx]) {
+                e.preventDefault();
+                nodes[sidebarFocusIdx].click();
+                setSidebarFocusIdx(null);
+              }
+            }} tabIndex={0}>
             <SidebarTree
               instances={instances}
               treeSearch={treeSearch}
+              clearTreeSearch={() => setTreeSearch('')}
               collapsedGroups={collapsedGroups}
               setCollapsedGroups={setCollapsedGroups}
               treeErrors={treeErrors}
@@ -495,7 +727,13 @@ export default function App() {
               refreshDb={refreshDb}
               disconnectInst={disconnectInst}
               onCtx={onCtx}
+              openRoutine={openRoutine}
+              openTrigger={openTrigger}
+              setOpenTabs={setOpenTabs}
+              setActiveTabId={setActiveTabId}
+              loadCols={loadCols}
             />
+            </div>
           </div>
         </div>
 
@@ -591,8 +829,12 @@ export default function App() {
             setDbPickerSearch={setDbPickerSearch}
             exportResult={exportResult}
             generateDml={generateDml}
+            insertRow={insertRow}
+            deleteRows={deleteRows}
             toast={toast}
             theme={theme}
+            fontSize={fontSize}
+            setFontSize={setFontSize}
           />
         </div>
       </div>
@@ -603,11 +845,16 @@ export default function App() {
         openTable={openTable}
         loadDDL={loadDDL}
         loadIdx={loadIdx}
+        loadCols={loadCols}
         refreshDb={refreshDb}
         openConsole={openConsole}
         disconnectInst={disconnectInst}
         setOpenTabs={setOpenTabs}
         setActiveTabId={setActiveTabId}
+        onImport={(instId, db, tbl) => setImportModal({ instId, dbName: db, tName: tbl })}
+        onDump={onDump}
+        openRoutine={openRoutine}
+        openTrigger={openTrigger}
       />
 
       {tabCtxMenu && (
@@ -655,6 +902,15 @@ export default function App() {
         tableName={genSqlModal?.tableName}
         pkColumns={genSqlModal?.pkColumns}
         onClose={() => setGenSqlModal(null)}
+        toast={toast}
+      />
+
+      <ImportModal
+        show={!!importModal}
+        instId={importModal?.instId}
+        dbName={importModal?.dbName}
+        tName={importModal?.tName}
+        onClose={() => setImportModal(null)}
         toast={toast}
       />
     </div>

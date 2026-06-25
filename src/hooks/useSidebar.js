@@ -19,7 +19,7 @@ export default function useSidebar({
     const newId = `${inst.name}-${Date.now()}`;
     const cr = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: newId, name: inst.name, save: false, ...inst.config }) });
     if (!cr.ok) throw new Error(cr.error || 'Reconnect failed');
-    setInstances(p => p.map(i => i.id === instId ? { ...i, id: newId, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {}, dbTables: {}, tableColumns: {}, tableIndexes: {} } : i));
+    setInstances(p => p.map(i => i.id === instId ? { ...i, id: newId, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {}, dbTables: {}, tableColumns: {}, tableIndexes: {}, dbRoutines: {}, dbTriggers: {} } : i));
     setOpenTabs(p => p.map(t => t.instId === instId ? { ...t, instId: newId } : t));
     return newId;
   }, []);
@@ -75,23 +75,79 @@ export default function useSidebar({
     }
   }, []);
 
+  /* ----- Load routines (procedures + functions) for a database ----- */
+  const loadRoutines = useCallback(async (instId, dbName) => {
+    try {
+      const r = await api(`/api/routines?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}`);
+      if (r.ok) {
+        setInstances(p => p.map(i => i.id === instId
+          ? { ...i, dbRoutines: { ...(i.dbRoutines || {}), [dbName]: r.routines || [] } }
+          : i));
+      }
+    } catch (_) { }
+  }, []);
+
+  /* ----- Load triggers for a database ----- */
+  const loadTriggers = useCallback(async (instId, dbName) => {
+    try {
+      const r = await api(`/api/triggers?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}`);
+      if (r.ok) {
+        setInstances(p => p.map(i => i.id === instId
+          ? { ...i, dbTriggers: { ...(i.dbTriggers || {}), [dbName]: r.triggers || [] } }
+          : i));
+      }
+    } catch (_) { }
+  }, []);
+
   /* ----- Load columns / DDL / indexes ----- */
   const loadCols = useCallback(async (instId, dbName, table) => {
-    const r = await api(`/api/columns?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
-    if (r.ok) return r.columns;
-    err(r.error); return [];
+    try {
+      const r = await api(`/api/columns?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
+      if (r.ok) return r.columns;
+      err(r.error); return null;
+    } catch (e) { return null; }
   }, [err]);
 
   const loadDDL = useCallback(async (instId, dbName, table) => {
-    const r = await api(`/api/table-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
-    if (r.ok) return r.ddl;
-    err(r.error); return '';
+    try {
+      const r = await api(`/api/table-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
+      if (r.ok) return r.ddl;
+      err(r.error); return '';
+    } catch (e) { return ''; }
   }, [err]);
 
   const loadIdx = useCallback(async (instId, dbName, table) => {
-    const r = await api(`/api/table-indexes?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
-    if (r.ok) return r.indexes;
-    err(r.error); return [];
+    try {
+      const r = await api(`/api/table-indexes?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
+      if (r.ok) return r.indexes;
+      err(r.error); return null;
+    } catch (e) { return null; }
+  }, [err]);
+
+  const loadFKs = useCallback(async (instId, dbName, table) => {
+    try {
+      const r = await api(`/api/table-fks?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
+      if (r.ok) return r.foreignKeys;
+      return null;
+    } catch (e) { return null; }
+  }, []);
+
+  /* ----- Load routine DDL ----- */
+  const loadRoutineDDL = useCallback(async (instId, dbName, name, type) => {
+    try {
+      const r = await api(`/api/routine-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`);
+      if (r.ok) return r.ddl;
+      err(r.error); return '';
+    } catch (e) { return ''; }
+  }, [err]);
+
+  /* ----- Load trigger DDL ----- */
+  const loadTriggerDDL = useCallback(async (instId, dbName, name) => {
+    try {
+      const r = await api(`/api/trigger-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&name=${encodeURIComponent(name)}`);
+      if (r.ok) return r.ddl;
+      err(r.error); return '';
+    } catch (e) { return ''; }
   }, [err]);
 
   /* ----- Refresh instance ----- */
@@ -107,6 +163,8 @@ export default function useSidebar({
         const expDbs = Object.entries(inst.expandedDbs || {}).filter(([, v]) => v).map(([k]) => k);
         for (const dbName of expDbs) {
           try { await loadTabs(effId, dbName); } catch (_) {}
+          try { await loadRoutines(effId, dbName); } catch (_) {}
+          try { await loadTriggers(effId, dbName); } catch (_) {}
         }
       }
       setStatus('Refreshed');
@@ -117,7 +175,7 @@ export default function useSidebar({
     } finally {
       setRefreshing(p => { const n = { ...p }; delete n[instId]; return n; });
     }
-  }, [ensureConnected, loadDbs, loadTabs, toast]);
+  }, [ensureConnected, loadDbs, loadTabs, loadRoutines, loadTriggers, toast]);
 
   /* ----- Refresh database ----- */
   const refreshDb = useCallback(async (instId, dbName) => {
@@ -127,7 +185,11 @@ export default function useSidebar({
     setTreeErrors(p => { const n = { ...p }; delete n[ek]; return n; });
     try {
       const effId = await ensureConnected(instId);
-      await loadTabs(effId, dbName);
+      await Promise.allSettled([
+        loadTabs(effId, dbName),
+        loadRoutines(effId, dbName),
+        loadTriggers(effId, dbName),
+      ]);
       setStatus('Refreshed');
       toast('Refreshed', 'success');
     } catch (e) {
@@ -136,7 +198,7 @@ export default function useSidebar({
     } finally {
       setRefreshing(p => { const n = { ...p }; delete n[ek]; return n; });
     }
-  }, [ensureConnected, loadTabs, toast]);
+  }, [ensureConnected, loadTabs, loadRoutines, loadTriggers, toast]);
 
   /* ----- Tree: toggle instance ----- */
   const toggleInst = useCallback(async (instId) => {
@@ -171,46 +233,60 @@ export default function useSidebar({
     });
     if (needLoad) {
       const ek = `${instId}/${dbName}`;
+      setRefreshing(p => ({ ...p, [ek]: true }));
       setTreeErrors(p => { const n = { ...p }; delete n[ek]; return n; });
       try {
         const effId = await ensureConnected(instId);
-        await loadTabs(effId, dbName);
+        await Promise.allSettled([
+          loadTabs(effId, dbName),
+          loadRoutines(effId, dbName),
+          loadTriggers(effId, dbName),
+        ]);
       } catch (e) {
         setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { ...(i.expandedDbs || {}), [dbName]: false } } : i));
         setTreeErrors(p => ({ ...p, [ek]: e.message || String(e) }));
+      } finally {
+        setRefreshing(p => { const n = { ...p }; delete n[ek]; return n; });
       }
     }
-  }, [ensureConnected, loadTabs]);
+  }, [ensureConnected, loadTabs, loadRoutines, loadTriggers, setRefreshing]);
 
   /* ----- Tree: toggle table ----- */
   const toggleTbl = useCallback(async (instId, dbName, tName) => {
-    let needCols = false, needIdx = false;
+    let needCols = false, needIdx = false, needFKs = false;
     setInstances(p => {
       const inst = p.find(i => i.id === instId);
       const isOpen = inst?.expandedTables?.[tName];
       if (!isOpen) {
-        if (!inst?.tableColumns?.[tName]) needCols = true;
-        if (!inst?.tableIndexes?.[tName]) needIdx = true;
+        if (inst?.tableColumns?.[tName] === undefined) needCols = true;
+        if (inst?.tableIndexes?.[tName] === undefined) needIdx = true;
+        if (inst?.tableFKs?.[tName] === undefined) needFKs = true;
       }
       return p.map(i => i.id === instId ? { ...i, expandedTables: { ...(i.expandedTables || {}), [tName]: !isOpen } } : i);
     });
-    if (needCols || needIdx) {
-      const [cols, idxs] = await Promise.all([
-        needCols ? loadCols(instId, dbName, tName) : Promise.resolve(null),
-        needIdx ? loadIdx(instId, dbName, tName) : Promise.resolve(null),
-      ]);
-      setInstances(p => p.map(i => {
-        if (i.id !== instId) return i;
-        const upd = {};
-        if (cols) upd.tableColumns = { ...(i.tableColumns || {}), [tName]: cols };
-        if (idxs) upd.tableIndexes = { ...(i.tableIndexes || {}), [tName]: idxs };
-        return { ...i, ...upd };
-      }));
+    if (needCols || needIdx || needFKs) {
+      try {
+        const effId = await ensureConnected(instId);
+        const [cols, idxs, fks] = await Promise.all([
+          needCols ? loadCols(effId, dbName, tName) : Promise.resolve(null),
+          needIdx ? loadIdx(effId, dbName, tName) : Promise.resolve(null),
+          needFKs ? loadFKs(effId, dbName, tName) : Promise.resolve(null),
+        ]);
+        setInstances(p => p.map(i => {
+          if (i.id !== effId) return i;
+          const upd = {};
+          if (cols) upd.tableColumns = { ...(i.tableColumns || {}), [tName]: cols };
+          if (idxs) upd.tableIndexes = { ...(i.tableIndexes || {}), [tName]: idxs };
+          if (fks) upd.tableFKs = { ...(i.tableFKs || {}), [tName]: fks };
+          return { ...i, ...upd };
+        }));
+      } catch (_) {}
     }
-  }, [loadCols, loadIdx]);
+  }, [ensureConnected, loadCols, loadIdx, loadFKs]);
 
   return {
-    ensureConnected, loadDbs, loadTabs, loadCols, loadDDL, loadIdx,
+    ensureConnected, loadDbs, loadTabs, loadCols, loadDDL, loadIdx, loadFKs,
+    loadRoutines, loadTriggers, loadRoutineDDL, loadTriggerDDL,
     refreshInst, refreshDb, toggleInst, toggleDb, toggleTbl,
   };
 }

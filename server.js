@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const XLSX = require('xlsx');
 const db = require('./db');
 
 // Track running queries for cancellation
@@ -290,6 +291,68 @@ app.get('/api/tables', async (req, res) => {
   }
 });
 
+// Stored procedures & functions
+app.get('/api/routines', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const schema = resolveDatabase(req, instanceId);
+    if (!schema) return res.status(400).json({ error: 'database required' });
+    const sql = `SELECT ROUTINE_NAME, ROUTINE_TYPE, DTD_IDENTIFIER, CREATED, LAST_ALTERED FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ? ORDER BY ROUTINE_TYPE, ROUTINE_NAME`;
+    const result = await db.execute(instanceId, sql, [schema]);
+    res.json({ ok: true, routines: result.rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Triggers
+app.get('/api/triggers', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const schema = resolveDatabase(req, instanceId);
+    if (!schema) return res.status(400).json({ error: 'database required' });
+    const sql = `SELECT TRIGGER_NAME, EVENT_MANIPULATION, EVENT_OBJECT_TABLE, ACTION_TIMING, CREATED FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? ORDER BY TRIGGER_NAME`;
+    const result = await db.execute(instanceId, sql, [schema]);
+    res.json({ ok: true, triggers: result.rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Routine / Trigger DDL
+app.get('/api/routine-ddl', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const schema = resolveDatabase(req, instanceId);
+    const { name, type } = req.query; // type: 'PROCEDURE' or 'FUNCTION'
+    if (!name || !schema) return res.status(400).json({ error: 'name and database required' });
+    const sql = type === 'FUNCTION'
+      ? `SHOW CREATE FUNCTION ${escapeId(schema)}.${escapeId(name)}`
+      : `SHOW CREATE PROCEDURE ${escapeId(schema)}.${escapeId(name)}`;
+    const result = await db.execute(instanceId, sql);
+    const key = type === 'FUNCTION' ? 'Create Function' : 'Create Procedure';
+    const ddl = result.rows?.[0]?.[key] || '';
+    res.json({ ok: true, ddl, type: type || 'PROCEDURE' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/trigger-ddl', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const schema = resolveDatabase(req, instanceId);
+    const { name } = req.query;
+    if (!name || !schema) return res.status(400).json({ error: 'name and database required' });
+    const sql = `SHOW CREATE TRIGGER ${escapeId(schema)}.${escapeId(name)}`;
+    const result = await db.execute(instanceId, sql);
+    const ddl = result.rows?.[0]?.['SQL Original Statement'] || '';
+    res.json({ ok: true, ddl });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/table-ddl', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
@@ -298,7 +361,7 @@ app.get('/api/table-ddl', async (req, res) => {
     if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
     const sql = `SHOW CREATE TABLE ${escapeId(schema)}.${escapeId(table)}`;
     const result = await db.execute(instanceId, sql);
-    const ddl = result.rows?.[0]?.['Create Table'] || '';
+    const ddl = result.rows?.[0]?.['Create Table'] || result.rows?.[0]?.['Create View'] || '';
     res.json({ ok: true, ddl });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -314,6 +377,30 @@ app.get('/api/table-indexes', async (req, res) => {
     const sql = `SHOW INDEX FROM ${escapeId(schema)}.${escapeId(table)}`;
     const result = await db.execute(instanceId, sql);
     res.json({ ok: true, indexes: result.rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Foreign keys for a table
+app.get('/api/table-fks', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const schema = resolveDatabase(req, instanceId);
+    const table = req.query.table;
+    if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
+    const sql = `
+      SELECT
+        CONSTRAINT_NAME,
+        COLUMN_NAME,
+        REFERENCED_TABLE_NAME,
+        REFERENCED_COLUMN_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+      ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
+    `;
+    const result = await db.execute(instanceId, sql, [schema, table]);
+    res.json({ ok: true, foreignKeys: result.rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -483,6 +570,42 @@ app.post('/api/edit', async (req, res) => {
   }
 });
 
+// INSERT a single row into a table
+app.post('/api/insert', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const { table, row } = req.body;
+    if (!table || !row) return res.status(400).json({ error: 'table, row required' });
+    const keys = Object.keys(row);
+    if (!keys.length) return res.status(400).json({ error: 'row has no columns' });
+    const cols = keys.map(k => escapeId(k)).join(', ');
+    const pholders = keys.map(() => '?').join(', ');
+    const values = keys.map(k => row[k]);
+    const sql = `INSERT INTO ${escapeId(table)} (${cols}) VALUES (${pholders})`;
+    const result = await db.execute(instanceId, sql, values);
+    res.json({ ok: true, affectedRows: result.rows.affectedRows || 0, insertId: result.rows.insertId || null });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// DELETE a single row by primary key
+app.post('/api/delete', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const { table, pk } = req.body;
+    if (!table || !pk || !Object.keys(pk).length) return res.status(400).json({ error: 'table, pk required' });
+    const whereKeys = Object.keys(pk);
+    const whereClauses = whereKeys.map((k) => `${escapeId(k)} = ?`).join(' AND ');
+    const whereValues = whereKeys.map((k) => pk[k]);
+    const sql = `DELETE FROM ${escapeId(table)} WHERE ${whereClauses}`;
+    const result = await db.execute(instanceId, sql, whereValues);
+    res.json({ ok: true, affectedRows: result.rows.affectedRows || 0 });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/autocomplete', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
@@ -529,20 +652,78 @@ app.post('/api/cancel-query', async (req, res) => {
   }
 });
 
+// Batch data import from CSV/JSON
+app.post('/api/import', async (req, res) => {
+  try {
+    const instanceId = req.body.instanceId || 'default';
+    const { database, table, columns, rows } = req.body;
+
+    if (!database || !table || !columns || !columns.length || !rows || !rows.length) {
+      return res.status(400).json({ ok: false, error: 'database, table, columns, rows required' });
+    }
+
+    // Validate and sanitize identifiers
+    const escapedCols = columns.filter(c => c && c.trim()).map(c => escapeId(c.trim())).join(', ');
+    if (!escapedCols) return res.status(400).json({ ok: false, error: 'no valid columns' });
+
+    const cleanCols = columns.filter(c => c && c.trim());
+    const colCount = cleanCols.length;
+
+    // Normalize rows to match column count (fill missing with NULL)
+    const normalizedRows = rows.map(row => {
+      const r = new Array(colCount).fill(null);
+      for (let i = 0; i < Math.min(colCount, row.length); i++) {
+        const v = row[i];
+        // Treat empty string as NULL
+        r[i] = (v === '' || v === undefined || v === null) ? null : v;
+      }
+      return r;
+    });
+
+    // Build batch INSERT with parameterized values
+    const placeholders = normalizedRows.map(() => `(${cleanCols.map(() => '?').join(', ')})`).join(', ');
+    const flatValues = normalizedRows.flat();
+    const sql = `INSERT INTO ${escapeId(database)}.${escapeId(table)} (${escapedCols}) VALUES ${placeholders}`;
+
+    const result = await db.execute(instanceId, sql, flatValues);
+    const inserted = result.rows.affectedRows || normalizedRows.length;
+    res.json({ ok: true, inserted });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.post('/api/export', async (req, res) => {
   try {
     const instanceId = req.body.instanceId || 'default';
     const { sql, format = 'csv' } = req.body;
     if (!sql) return res.status(400).json({ error: 'sql required' });
     const result = await db.execute(instanceId, sql);
+    const fields = result.fields || [];
+    const rows = result.rows || [];
+
     if (format === 'json') {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', 'attachment; filename="export.json"');
-      res.json(result.rows);
+      res.json(rows);
+    } else if (format === 'xlsx') {
+      const headers = fields.map(f => f.name);
+      const data = [headers, ...rows.map(row => headers.map(h => {
+        const v = row[h];
+        if (v === null || v === undefined) return '';
+        if (v instanceof Date) return v.toISOString().slice(0, 19).replace('T', ' ');
+        return v;
+      }))];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Results');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="export.xlsx"');
+      res.send(buf);
     } else {
-      const fields = result.fields || [];
       const headers = fields.map(f => f.name).join(',');
-      const lines = (result.rows || []).map(row =>
+      const lines = rows.map(row =>
         fields.map(f => {
           const v = row[f.name];
           if (v === null || v === undefined) return '';
@@ -560,6 +741,118 @@ app.post('/api/export', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// Export SQL Dump — generates CREATE TABLE + INSERT INTO for table or database
+app.post('/api/dump', async (req, res) => {
+  try {
+    const instanceId = req.body.instanceId || 'default';
+    const { database, table, mode = 'all' } = req.body;
+    if (!database) return res.status(400).json({ error: 'database required' });
+
+    const modeLabel = { all: 'Structure + Data', structure: 'Structure Only', data: 'Data Only' }[mode] || 'all';
+    let output = [
+      `-- Surge SQL Dump`,
+      `-- Database: ${database}`,
+      `-- Mode: ${modeLabel}`,
+      `-- Generated: ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`,
+      ``,
+    ];
+
+    if (table) {
+      // Single table dump
+      await dumpTable(db, instanceId, database, table, output, mode);
+    } else {
+      // Full database dump
+      const colsResult = await db.execute(instanceId,
+        `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME`,
+        [database]
+      );
+      const tables = (colsResult.rows || []).map(r => r.TABLE_NAME);
+      for (const tbl of tables) {
+        await dumpTable(db, instanceId, database, tbl, output, mode);
+        output.push('');
+      }
+    }
+
+    let suffix = '';
+    if (mode === 'structure') suffix = '_structure';
+    else if (mode === 'data') suffix = '_data';
+    const filename = table ? `${database}_${table}${suffix}.sql` : `${database}${suffix}_dump.sql`;
+    res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(output.join('\n'));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+async function dumpTable(db, instanceId, database, tableName, output, mode = 'all') {
+  output.push(`-- --------------------------------------------------------`);
+  output.push(`-- Table: ${database}.${tableName}`);
+  output.push(`-- --------------------------------------------------------`);
+
+  const includeStructure = mode === 'all' || mode === 'structure';
+  const includeData = mode === 'all' || mode === 'data';
+
+  // CREATE TABLE
+  if (includeStructure) {
+    try {
+      const ddlResult = await db.execute(instanceId,
+        `SHOW CREATE TABLE ${escapeId(database)}.${escapeId(tableName)}`
+      );
+      const ddl = ddlResult.rows?.[0]?.['Create Table'] || '';
+      output.push('');
+      output.push(`DROP TABLE IF EXISTS ${escapeId(database)}.${escapeId(tableName)};`);
+      output.push(ddl + ';');
+    } catch (e) {
+      output.push(`-- Error getting DDL: ${e.message}`);
+    }
+  }
+
+  // SELECT * data
+  if (includeData) {
+    try {
+      const dataResult = await db.execute(instanceId,
+        `SELECT * FROM ${escapeId(database)}.${escapeId(tableName)}`
+      );
+      const rows = dataResult.rows || [];
+      const fields = dataResult.fields || [];
+
+      output.push('');
+      if (rows.length === 0) {
+        output.push(`-- ${tableName} has no rows`);
+        return;
+      }
+
+      output.push(`-- Data for ${tableName} (${rows.length} rows)`);
+      output.push('');
+
+      const fieldNames = fields.map(f => f.name);
+      const colList = fieldNames.map(c => escapeId(c)).join(', ');
+
+      // Generate INSERT statements in batches of 500 rows
+      const BATCH = 500;
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const batch = rows.slice(i, i + BATCH);
+        const values = batch.map(row =>
+          '(' + fieldNames.map(c => escapeSqlVal(row[c])).join(', ') + ')'
+        ).join(',\n');
+        output.push(`INSERT INTO ${escapeId(database)}.${escapeId(tableName)} (${colList})\nVALUES\n${values};`);
+        if (i + BATCH < rows.length) output.push('');
+      }
+    } catch (e) {
+      output.push(`-- Error getting data: ${e.message}`);
+    }
+  }
+}
+
+function escapeSqlVal(val) {
+  if (val === null || val === undefined) return 'NULL';
+  if (typeof val === 'number') return String(val);
+  if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
+  const s = String(val);
+  return `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
 
 app.get('*', (req, res) => {
   const target = fs.existsSync(distPath)

@@ -15,5 +15,8 @@ const I = {
   filter: '\u25BC',       // ▼ (down triangle for filter/dropdown)
   edit: '\u270E',         // ✎ (pencil for edit)
   export: '\u2913',       // ⤓ (down arrow to bar for export/download)
+  proc: '\u2699',         // ⚙ (gear for procedure)
+  func: '\u0192',         // ƒ (function/florin symbol)
+  trigger: '\u26A1',      // ⚡ (lightning for trigger)
 };
 export default I;

@@ -65,7 +65,11 @@ async function disconnect(instanceId) {
 function getPool(instanceId) {
   instanceId = resolveInstanceId(instanceId);
   const pool = pools.get(instanceId);
-  if (!pool) throw new Error(`No connection for instance ${instanceId}`);
+  if (!pool) {
+    const err = new Error(`No connection for instance ${instanceId}`);
+    err.code = 'NO_POOL';
+    throw err;
+  }
   return pool;
 }
 

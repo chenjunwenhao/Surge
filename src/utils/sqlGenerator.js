@@ -2,7 +2,7 @@
  * SQL Generator — generates INSERT / UPDATE statements from result rows.
  */
 
-function escapeSQL(val) {
+export function escapeSQL(val) {
   if (val === null || val === undefined) return 'NULL';
   if (typeof val === 'number') return String(val);
   if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;

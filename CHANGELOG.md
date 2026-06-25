@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.3.0] — 2026-06-24
+
+### Added
+- **存储过程 & 函数支持**：侧边栏展示 Procedures / Functions 分组，右键查看 DDL
+- **触发器支持**：侧边栏展示 Triggers 分组，右键查看 DDL
+- **表节点 SQL 快捷生成**：点击表名旁的 SQL 图标，一键生成 SELECT / INSERT / UPDATE / DELETE 模板到编辑器
+- **导出 Dump 子菜单**：右键导出支持 Structure Only / Data Only / Structure + Data 三种模式
+- **XLSX 导出**：结果集支持导出为 Excel (.xlsx) 格式
+
+### Changed
+- 编辑器字体大小调节持久化到 localStorage
+- Tab 会话恢复增强，重启后自动恢复上次标签页结构
+- 侧边栏键盘导航（方向键移动焦点，Enter 激活）
+
 ## [2.2.0] — 2026-06-24
 
 ### Added

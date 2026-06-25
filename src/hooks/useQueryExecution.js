@@ -2,6 +2,43 @@ import { useCallback } from 'react';
 import api from '../utils/api';
 import formatSQL from '../utils/sqlFormatter';
 
+// Find the SQL statement at a given cursor offset
+function getStatementAtCursor(text, offset) {
+  const stmts = [];
+  let cur = '', start = 0, i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    // string
+    if (ch === "'" || ch === '"') { const q = ch; cur += q; i++; while (i < text.length && text[i] !== q) { if (text[i] === '\\') { cur += text[i]; i++; } cur += text[i] || ''; i++; } if (i < text.length) { cur += q; i++; } continue; }
+    // backtick
+    if (ch === '`') { cur += '`'; i++; while (i < text.length && text[i] !== '`') { cur += text[i]; i++; } if (i < text.length) { cur += '`'; i++; } continue; }
+    // line comment
+    if (ch === '-' && text[i+1] === '-') { while (i < text.length && text[i] !== '\n') { cur += text[i]; i++; } continue; }
+    // block comment
+    if (ch === '/' && text[i+1] === '*') { cur += '/*'; i += 2; while (i < text.length && !(text[i] === '*' && text[i+1] === '/')) { cur += text[i]; i++; } if (i < text.length) { cur += '*/'; i += 2; } continue; }
+    // semicolon = statement boundary
+    if (ch === ';') {
+      const s = cur.trim();
+      if (s) {
+        const stmtStart = start;
+        const stmtEnd = i; // includes the semicolon
+        stmts.push({ sql: s, start: stmtStart, end: stmtEnd });
+      }
+      start = i + 1;
+      cur = ''; i++;
+      continue;
+    }
+    cur += ch; i++;
+  }
+  const s = cur.trim();
+  if (s) {
+    stmts.push({ sql: s, start, end: text.length });
+  }
+  // Find the statement that contains the cursor
+  const found = stmts.find(st => offset >= st.start && offset <= st.end);
+  return found ? found.sql : text.trim();
+}
+
 export default function useQueryExecution({
   edRef, abortRef, timerRef, instancesRef, selInst,
   setOpenTabs, setStatus, setRunning, setQueryHistory,
@@ -25,7 +62,17 @@ export default function useQueryExecution({
     let isSelection = false;
     if (edRef.current) {
       const sel = edRef.current.getSelection();
-      if (sel && !sel.isEmpty()) { sql = edRef.current.getModel().getValueInRange(sel); isSelection = true; }
+      if (sel && !sel.isEmpty()) {
+        sql = edRef.current.getModel().getValueInRange(sel); isSelection = true;
+      } else {
+        // Cursor-based: execute the statement at cursor position
+        const fullText = edRef.current.getValue();
+        const pos = edRef.current.getPosition();
+        const model = edRef.current.getModel();
+        const offset = model.getOffsetAt(pos);
+        const stmt = getStatementAtCursor(fullText, offset);
+        if (stmt && stmt !== fullText.trim()) sql = stmt;
+      }
     }
     if (!sql.trim()) return;
 

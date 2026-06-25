@@ -21,6 +21,9 @@ export default function useConnections({
   const [confirmDialog, setConfirmDialog] = useState(null);
   const editOldNameRef = { current: '' };
 
+  /* ----- Connecting state (for sidebar spinner) ----- */
+  const [connecting, setConnecting] = useState(null); // null or conn name
+
   /* ----- Load saved connections ----- */
   const loadSaved = useCallback(async () => {
     const r = await api('/api/connections');
@@ -33,9 +36,16 @@ export default function useConnections({
   /* ----- Modal: test connection ----- */
   const testConn = useCallback(async () => {
     setMTesting(true); setMResult(null);
-    const r = await api('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined }) });
-    setMTesting(false); setMResult(r);
+    try {
+      const r = await api('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        timeout: 15000,
+        body: JSON.stringify({ host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined }) });
+      setMResult(r);
+    } catch (e) {
+      setMResult({ ok: false, error: e.name === 'AbortError' ? 'Connection test timed out (15s)' : (e.message || String(e)) });
+    } finally {
+      setMTesting(false);
+    }
   }, [mHost, mPort, mUser, mPass, mDb]);
 
   /* ----- Modal: connect / update ----- */
@@ -71,27 +81,39 @@ export default function useConnections({
     const existing = instancesRef.current.find(i => i.name === name && i.connected);
     if (existing) { setStatus('Already connected: ' + name); toast('Already connected: ' + name, 'warning'); setShowModal(false); return; }
     setShowModal(false);
+    setConnecting(name);
     setStatus('Connecting...');
     const instId = `${name}-${Date.now()}`;
-    const r = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instanceId: instId, name, save: mSave, ...payload }) });
-    if (r.ok) {
-      const inst = { id: instId, name, config: payload, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {} };
-      setInstances(p => [...p, inst]);
-      toast('Connected: ' + name, 'success');
-      setStatus('Connected: ' + name);
-      if (mSave) loadSaved();
-      try {
-        await loadDbs(instId);
-        if (payload.database) {
-          setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { [payload.database]: true } } : i));
-          await loadTabs(instId, payload.database);
+    try {
+      const r = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        timeout: 15000,
+        body: JSON.stringify({ instanceId: instId, name, save: mSave, ...payload }) });
+      if (r.ok) {
+        const inst = { id: instId, name, config: payload, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {} };
+        setInstances(p => [...p, inst]);
+        toast('Connected: ' + name, 'success');
+        setStatus('Connected: ' + name);
+        if (mSave) loadSaved();
+        try {
+          await loadDbs(instId);
+          if (payload.database) {
+            setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { [payload.database]: true } } : i));
+            await loadTabs(instId, payload.database);
+          }
+        } catch (e) {
+          setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
+          setStatus(e.message || 'Failed');
         }
-      } catch (e) {
-        setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
-        setStatus(e.message || 'Failed');
+      } else {
+        err(r.error || 'Connection failed');
       }
-    } else err(r.error);
+    } catch (e) {
+      const msg = e.name === 'AbortError' ? `Connection to ${name} timed out (15s)` : (e.message || String(e));
+      setStatus('Connection failed: ' + msg);
+      toast('Connection failed: ' + msg, 'error');
+    } finally {
+      setConnecting(null);
+    }
   }, [mName, mHost, mPort, mUser, mPass, mDb, mSave, mEditId, err, toast, loadSaved, loadDbs, loadTabs]);
 
   /* ----- Saved connection: connect ----- */
@@ -100,24 +122,37 @@ export default function useConnections({
     if (existing) { setStatus('Already connected: ' + conn.name); return; }
     const payload = { host: conn.host, port: conn.port || 3306, user: conn.user, password: conn.password || '', database: conn.database };
     const instId = `${conn.name}-${Date.now()}`;
-    const r = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instanceId: instId, name: conn.name, save: false, ...payload }) });
-    if (r.ok) {
-      const inst = { id: instId, name: conn.name, config: payload, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {} };
-      setInstances(p => [...p, inst]);
-      toast('Connected: ' + conn.name, 'success');
-      setStatus('Connected: ' + conn.name);
-      try {
-        await loadDbs(instId);
-        if (payload.database) {
-          setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { [payload.database]: true } } : i));
-          await loadTabs(instId, payload.database);
+    setConnecting(conn.name);
+    setStatus('Connecting...');
+    try {
+      const r = await api('/api/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        timeout: 15000,
+        body: JSON.stringify({ instanceId: instId, name: conn.name, save: false, ...payload }) });
+      if (r.ok) {
+        const inst = { id: instId, name: conn.name, config: payload, connected: true, databases: [], expanded: true, expandedDbs: {}, expandedTables: {} };
+        setInstances(p => [...p, inst]);
+        toast('Connected: ' + conn.name, 'success');
+        setStatus('Connected: ' + conn.name);
+        try {
+          await loadDbs(instId);
+          if (payload.database) {
+            setInstances(p => p.map(i => i.id === instId ? { ...i, expandedDbs: { [payload.database]: true } } : i));
+            await loadTabs(instId, payload.database);
+          }
+        } catch (e) {
+          setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
+          setStatus(e.message || 'Failed');
         }
-      } catch (e) {
-        setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
-        setStatus(e.message || 'Failed');
+      } else {
+        err(r.error || 'Connection failed');
       }
-    } else err(r.error);
+    } catch (e) {
+      const msg = e.name === 'AbortError' ? `Connection to ${conn.name} timed out (15s)` : (e.message || String(e));
+      setStatus('Connection failed: ' + msg);
+      toast('Connection failed: ' + msg, 'error');
+    } finally {
+      setConnecting(null);
+    }
   }, [err, toast, loadDbs, loadTabs]);
 
   const delSaved = useCallback(async (id) => {
@@ -174,5 +209,6 @@ export default function useConnections({
     showModal, setShowModal, mName, setMName, mHost, setMHost, mPort, setMPort,
     mUser, setMUser, mPass, setMPass, mDb, setMDb, mSave, setMSave,
     mTesting, mResult, setMResult, mEditId, setMEditId, confirmDialog, setConfirmDialog,
+    connecting,
   };
 }
