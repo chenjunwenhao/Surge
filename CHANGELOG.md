@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.3.2] — 2026-07-14
+
+### Fixed
+- **错误提示全面优化**：修复多处 Toast 提示模糊不准确的问题
+  - `saveRow` / `deleteRows` 失败时明确展示后端返回的具体错误原因（如 "Data too long for column"），不再仅显示 "Saved 0, 1 failed"
+  - 全部失败时显示 `Save failed: {错误原因}` 而非模糊的计数
+  - `loadCols` / `loadDDL` / `loadIdx` / `loadRoutineDDL` / `loadTriggerDDL` 错误提示增加操作上下文（表名、对象类型）
+  - `loadSaved` 错误提示增加 "Failed to load saved connections" 前缀
+  - `disconnectInst` 错误时显示具体失败原因
+
 ## [2.3.1] — 2026-06-25
 
 ### Fixed

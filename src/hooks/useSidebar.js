@@ -104,7 +104,7 @@ export default function useSidebar({
     try {
       const r = await api(`/api/columns?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
       if (r.ok) return r.columns;
-      err(r.error); return null;
+      err(`Failed to load columns for ${table}: ${r.error || 'Unknown error'}`); return null;
     } catch (e) { return null; }
   }, [err]);
 
@@ -112,7 +112,7 @@ export default function useSidebar({
     try {
       const r = await api(`/api/table-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
       if (r.ok) return r.ddl;
-      err(r.error); return '';
+      err(`Failed to load DDL for ${table}: ${r.error || 'Unknown error'}`); return '';
     } catch (e) { return ''; }
   }, [err]);
 
@@ -120,7 +120,7 @@ export default function useSidebar({
     try {
       const r = await api(`/api/table-indexes?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(table)}`);
       if (r.ok) return r.indexes;
-      err(r.error); return null;
+      err(`Failed to load indexes for ${table}: ${r.error || 'Unknown error'}`); return null;
     } catch (e) { return null; }
   }, [err]);
 
@@ -137,7 +137,8 @@ export default function useSidebar({
     try {
       const r = await api(`/api/routine-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`);
       if (r.ok) return r.ddl;
-      err(r.error); return '';
+      const label = type === 'FUNCTION' ? 'function' : 'procedure';
+      err(`Failed to load DDL for ${label} ${name}: ${r.error || 'Unknown error'}`); return '';
     } catch (e) { return ''; }
   }, [err]);
 
@@ -146,7 +147,7 @@ export default function useSidebar({
     try {
       const r = await api(`/api/trigger-ddl?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&name=${encodeURIComponent(name)}`);
       if (r.ok) return r.ddl;
-      err(r.error); return '';
+      err(`Failed to load DDL for trigger ${name}: ${r.error || 'Unknown error'}`); return '';
     } catch (e) { return ''; }
   }, [err]);
 

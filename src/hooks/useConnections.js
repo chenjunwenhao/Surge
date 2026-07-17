@@ -28,7 +28,7 @@ export default function useConnections({
   const loadSaved = useCallback(async () => {
     const r = await api('/api/connections');
     if (r.ok) setSavedConns(r.connections || []);
-    else err(r.error);
+    else err('Failed to load saved connections: ' + (r.error || 'Unknown error'));
   }, [err]);
 
   useEffect(() => { loadSaved(); }, [loadSaved]);
@@ -195,8 +195,8 @@ export default function useConnections({
         toast('Disconnected: ' + instName, 'info');
         setStatus('Disconnected');
       } else {
-        setStatus('Disconnect failed');
-        toast('Disconnect failed', 'error');
+        setStatus('Disconnect failed: ' + (r.error || 'Unknown error'));
+        toast('Disconnect failed: ' + (r.error || 'Unknown error'), 'error');
       }
     } catch (e) {
       setStatus('Disconnect failed: ' + (e.message || String(e)));

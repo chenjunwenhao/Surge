@@ -334,7 +334,7 @@ export default function App() {
     if (!dirtyEntries.length) return;
     setStatus('Saving...');
     let saved = 0, failed = 0;
-    const lastError = { msg: '' };
+    const errors = [];
     for (const [key, dirtyCols] of dirtyEntries) {
       const ri = Number(key);
       const row = tab.rows[ri];
@@ -352,18 +352,22 @@ export default function App() {
         const r = await api('/api/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ instanceId: tab.instId, database: tab.dbName, table: tab.tName, pk, updates: ups }) });
         if (r.ok) saved++;
-        else { failed++; lastError.msg = r.error || 'Unknown error'; }
-      } catch (e) { failed++; lastError.msg = e.message || String(e); }
+        else { failed++; errors.push(r.error || 'Unknown error'); }
+      } catch (e) { failed++; errors.push(e.message || String(e)); }
     }
     if (failed === 0) {
       setStatus('Rows saved: ' + saved);
       toast(saved + ' row(s) saved', 'success');
       setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, dirtyRows: {} } : t));
     } else {
-      setStatus(`Saved ${saved}, ${failed} failed`);
-      const detail = lastError.msg ? ` — ${lastError.msg}` : '';
-      toast(`Saved ${saved}, ${failed} failed${detail}`, failed === dirtyEntries.length ? 'error' : 'warning');
-      if (saved > 0) setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, dirtyRows: {} } : t));
+      const firstErr = errors[0] || 'Unknown error';
+      setStatus(`Saved ${saved}, ${failed} failed — ${firstErr}`);
+      if (saved > 0) {
+        toast(`Saved ${saved}, ${failed} failed — ${firstErr}`, 'warning');
+        setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, dirtyRows: {} } : t));
+      } else {
+        toast(`Save failed: ${firstErr}`, 'error');
+      }
     }
   }, [err, toast]);
 
@@ -420,6 +424,7 @@ export default function App() {
     if (!selRows.length) return;
     setStatus('Deleting...');
     let deleted = 0, failed = 0;
+    const errors = [];
     for (const row of selRows) {
       const pk = {};
       tab.pkColumns.forEach(c => { pk[c] = row[c]; });
@@ -427,8 +432,8 @@ export default function App() {
         const r = await api('/api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ instanceId: tab.instId, table: `${tab.dbName}.${tab.tName}`, pk }) });
         if (r.ok) deleted++;
-        else failed++;
-      } catch (_) { failed++; }
+        else { failed++; errors.push(r.error || 'Unknown error'); }
+      } catch (e) { failed++; errors.push(e.message || String(e)); }
     }
     if (failed === 0) {
       setStatus('Rows deleted: ' + deleted);
@@ -436,9 +441,14 @@ export default function App() {
       // Refresh the table data
       refreshTab(tab);
     } else {
-      setStatus(`Deleted ${deleted}, ${failed} failed`);
-      toast(`Deleted ${deleted}, ${failed} failed`, failed === rowIndices.length ? 'error' : 'warning');
-      if (deleted > 0) refreshTab(tab);
+      const firstErr = errors[0] || 'Unknown error';
+      setStatus(`Deleted ${deleted}, ${failed} failed — ${firstErr}`);
+      if (deleted > 0) {
+        toast(`Deleted ${deleted}, ${failed} failed — ${firstErr}`, 'warning');
+        refreshTab(tab);
+      } else {
+        toast(`Delete failed: ${firstErr}`, 'error');
+      }
     }
   }, [err, toast, refreshTab]);
 
