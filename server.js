@@ -1185,7 +1185,7 @@ const PORT = process.env.PORT || 3000;
 
 function startServer(port) {
   return new Promise((resolve, reject) => {
-    const srv = app.listen(port || PORT, () => {
+    const srv = app.listen(port ?? PORT, () => {
       const addr = srv.address();
       console.log('Server running on port', addr.port);
       resolve(addr.port);
