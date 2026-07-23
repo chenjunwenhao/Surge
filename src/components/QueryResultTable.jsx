@@ -124,7 +124,7 @@ export default function QueryResultTable({ rows, fields, error, tableName, toast
 
       {/* Context menu */}
       {ctxMenu && (
-        <div className="context-menu" style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 1000 }}>
+        <div className="context-menu" style={{ position: 'fixed', left: ctxMenu.x + 180 > window.innerWidth ? ctxMenu.x - 180 : ctxMenu.x, top: ctxMenu.y + 50 > window.innerHeight ? ctxMenu.y - 50 : ctxMenu.y, zIndex: 1000 }}>
           <div className="context-menu-item" onClick={() => copyInsert(ctxMenu.row)}>
             Copy Row as INSERT
           </div>

@@ -1,5 +1,39 @@
-import { useState } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import I from '../utils/icons';
+
+/* ==================== Context Menu Positioning Helper ==================== */
+
+// Wrapper that renders children at (x,y), measures real size, then repositions
+// to stay within viewport. Uses useLayoutEffect for zero-flicker positioning.
+function MenuFrame({ x, y, children, visible = true }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ left: x, top: y, visibility: 'hidden' });
+
+  useLayoutEffect(() => {
+    if (!ref.current || !visible) return;
+    const rect = ref.current.getBoundingClientRect();
+    const pad = 4;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = x;
+    let top = y;
+    // Flip upward if overflows bottom
+    if (y + rect.height > vh - pad) {
+      top = Math.max(pad, y - rect.height);
+    }
+    // Flip leftward if overflows right
+    if (x + rect.width > vw - pad) {
+      left = Math.max(pad, x - rect.width);
+    }
+    setPos({ left, top, visibility: 'visible' });
+  }, [x, y, visible]);
+
+  return (
+    <div className="context-menu" ref={ref} style={pos}>
+      {children}
+    </div>
+  );
+}
 
 /* ==================== Context Menu ==================== */
 export default function ContextMenu({
@@ -37,7 +71,7 @@ export default function ContextMenu({
     const icon = ctxMenu.type === 'procedure' ? I.proc : ctxMenu.type === 'function' ? I.func : I.trigger;
     const label = ctxMenu.type === 'procedure' ? 'Procedure' : ctxMenu.type === 'function' ? 'Function' : 'Trigger';
     return (
-      <div className="context-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+      <MenuFrame x={ctxMenu.x} y={ctxMenu.y}>
         <div className="context-menu-item" onClick={() => {
           if (ctxMenu.type === 'trigger') {
             openTrigger?.(ctxMenu.instId, ctxMenu.dbName, ctxMenu.tName);
@@ -49,14 +83,14 @@ export default function ContextMenu({
         <div className="context-menu-item" onClick={() => { refreshDb(ctxMenu.instId, ctxMenu.dbName); closeAll(); }}>{I.refresh} Refresh</div>
         <div className="context-menu-divider" />
         <div className="context-menu-item" onClick={() => { navigator.clipboard.writeText(ctxMenu.tName); closeAll(); }}>Copy Name</div>
-      </div>
+      </MenuFrame>
     );
   }
 
   // View context menu
   if (ctxMenu.type === 'view') {
     return (
-      <div className="context-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+      <MenuFrame x={ctxMenu.x} y={ctxMenu.y}>
         <div className="context-menu-item" onClick={() => { openTable(ctxMenu.instId, ctxMenu.dbName, ctxMenu.tName); closeAll(); }}>{I.view} View Data</div>
         <div className="context-menu-item" onClick={async () => {
           const ddl = await loadDDL(ctxMenu.instId, ctxMenu.dbName, ctxMenu.tName);
@@ -73,12 +107,12 @@ export default function ContextMenu({
           setOpenTabs(p => [...p, { id: tid, type: 'query', title: ctxMenu.tName, instId: ctxMenu.instId, db: ctxMenu.dbName, sql: `SELECT * FROM \`${ctxMenu.dbName}\`.\`${ctxMenu.tName}\` LIMIT 100;`, results: null, fields: [], error: null }]);
           setActiveTabId(tid); closeAll();
         }}>{I.sql} SELECT * FROM</div>
-      </div>
+      </MenuFrame>
     );
   }
 
   return (
-    <div className="context-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+    <MenuFrame x={ctxMenu.x} y={ctxMenu.y}>
       {ctxMenu.tName ? <>
         <div className="context-menu-item" onClick={() => { openTable(ctxMenu.instId, ctxMenu.dbName, ctxMenu.tName); closeAll(); }}>{I.table} Edit Data</div>
         <div className="context-menu-item" onClick={async () => {
@@ -162,6 +196,6 @@ export default function ContextMenu({
         <div className="context-menu-divider" />
         <div className="context-menu-item" onClick={() => { navigator.clipboard.writeText(ctxMenu.dbName); closeAll(); }}>Copy Name</div>
       </> : null}
-    </div>
+    </MenuFrame>
   );
 }

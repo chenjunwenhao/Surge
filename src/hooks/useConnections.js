@@ -119,7 +119,7 @@ export default function useConnections({
   /* ----- Saved connection: connect ----- */
   const connSaved = useCallback(async (conn) => {
     const existing = instancesRef.current.find(i => i.name === conn.name && i.connected);
-    if (existing) { setStatus('Already connected: ' + conn.name); return; }
+    if (existing) { setStatus('Already connected: ' + conn.name); return existing.id; }
     const payload = { host: conn.host, port: conn.port || 3306, user: conn.user, password: conn.password || '', database: conn.database };
     const instId = `${conn.name}-${Date.now()}`;
     setConnecting(conn.name);
@@ -143,13 +143,16 @@ export default function useConnections({
           setTreeErrors(p => ({ ...p, [instId]: e.message || String(e) }));
           setStatus(e.message || 'Failed');
         }
+        return instId;
       } else {
         err(r.error || 'Connection failed');
+        return null;
       }
     } catch (e) {
       const msg = e.name === 'AbortError' ? `Connection to ${conn.name} timed out (15s)` : (e.message || String(e));
       setStatus('Connection failed: ' + msg);
       toast('Connection failed: ' + msg, 'error');
+      return null;
     } finally {
       setConnecting(null);
     }

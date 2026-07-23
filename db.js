@@ -3,6 +3,23 @@ const mysql = require('mysql2/promise');
 const pools = new Map();
 const txConnections = new Map();
 const poolConfigs = new Map();
+const runningQueries = new Map(); // instanceId → { connection, threadId }
+
+// Transaction timeout tracking
+const TX_WARN_5_MIN = 5 * 60 * 1000;
+const TX_WARN_15_MIN = 15 * 60 * 1000;
+const TX_AUTO_ROLLBACK = 30 * 60 * 1000;
+const txTimers = new Map(); // instanceId → { startedAt, timer, warned5, warned15 }
+
+// Callback for frontend to subscribe to transaction warnings
+let txWarningCallback = null;
+function onTxWarning(cb) { txWarningCallback = cb; }
+
+function clearTxTimer(instanceId) {
+  const t = txTimers.get(instanceId);
+  if (t && t.timer) clearTimeout(t.timer);
+  txTimers.delete(instanceId);
+}
 
 const DEFAULT_INSTANCE = 'default';
 
@@ -100,6 +117,14 @@ async function beginTransaction(instanceId) {
   const connection = await pool.getConnection();
   await connection.beginTransaction();
   txConnections.set(instanceId, connection);
+
+  // Start timeout tracking
+  const startedAt = Date.now();
+  const timeoutId = setTimeout(() => {
+    autoRollbackTransaction(instanceId, 'Transaction auto-rolled back after 30 minutes idle');
+  }, TX_AUTO_ROLLBACK);
+  txTimers.set(instanceId, { startedAt, timer: timeoutId, warned5: false, warned15: false });
+
   return true;
 }
 
@@ -107,6 +132,7 @@ async function commit(instanceId) {
   instanceId = resolveInstanceId(instanceId);
   const connection = txConnections.get(instanceId);
   if (!connection) throw new Error('No active transaction');
+  clearTxTimer(instanceId);
   await connection.commit();
   await connection.release();
   txConnections.delete(instanceId);
@@ -117,6 +143,7 @@ async function rollback(instanceId) {
   instanceId = resolveInstanceId(instanceId);
   const connection = txConnections.get(instanceId);
   if (!connection) throw new Error('No active transaction');
+  clearTxTimer(instanceId);
   await connection.rollback();
   await connection.release();
   txConnections.delete(instanceId);
@@ -124,6 +151,38 @@ async function rollback(instanceId) {
 }
 
 const QUERY_TIMEOUT_MS = 60000; // 60-second query timeout
+
+async function autoRollbackTransaction(instanceId, reason) {
+  const connection = txConnections.get(instanceId);
+  if (!connection) return;
+  try {
+    await connection.rollback();
+    await connection.release();
+  } catch (_) {}
+  txConnections.delete(instanceId);
+  clearTxTimer(instanceId);
+  if (txWarningCallback) txWarningCallback(instanceId, 'rollback', reason);
+}
+
+function getTransactionStatus(instanceId) {
+  instanceId = resolveInstanceId(instanceId);
+  const conn = txConnections.get(instanceId);
+  const timer = txTimers.get(instanceId);
+  if (!conn) return { active: false, elapsed: 0 };
+  const elapsed = timer ? Date.now() - timer.startedAt : 0;
+
+  // Fire warnings at thresholds (once each)
+  if (timer && !timer.warned5 && elapsed >= TX_WARN_5_MIN) {
+    timer.warned5 = true;
+    if (txWarningCallback) txWarningCallback(instanceId, 'warn', `Transaction running for 5 minutes`);
+  }
+  if (timer && !timer.warned15 && elapsed >= TX_WARN_15_MIN) {
+    timer.warned15 = true;
+    if (txWarningCallback) txWarningCallback(instanceId, 'warn', `Transaction running for 15 minutes (auto-rollback at 30 min)`);
+  }
+
+  return { active: true, elapsed, autoRollbackAt: TX_AUTO_ROLLBACK };
+}
 
 async function execute(instanceId, sql, params) {
   instanceId = resolveInstanceId(instanceId);
@@ -144,11 +203,59 @@ async function execute(instanceId, sql, params) {
     }
   };
 
+  // Transaction connection: already a dedicated connection, no need to track for cancel
   if (txConnections.has(instanceId)) {
     return await doExec(txConnections.get(instanceId));
   }
+
+  // Get a dedicated connection from pool so we can cancel it by threadId
   const pool = getPool(instanceId);
-  return await doExec(pool);
+  const conn = await pool.getConnection();
+  runningQueries.set(instanceId, { connection: conn, threadId: conn.threadId });
+  try {
+    return await doExec(conn);
+  } finally {
+    runningQueries.delete(instanceId);
+    conn.release();
+  }
+}
+
+async function cancelQuery(instanceId) {
+  instanceId = resolveInstanceId(instanceId);
+  const entry = runningQueries.get(instanceId);
+  if (!entry) return false;
+  // Send KILL QUERY via a separate connection (the original is busy running)
+  try {
+    const pool = pools.get(instanceId);
+    if (!pool) return false;
+    const killer = await pool.getConnection();
+    try {
+      await killer.query(`KILL QUERY ${entry.threadId}`);
+    } finally {
+      killer.release();
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function shutdownAll() {
+  // Rollback all active transactions first
+  for (const [id, conn] of txConnections.entries()) {
+    try {
+      await conn.rollback();
+      await conn.release();
+    } catch (_) {}
+    txConnections.delete(id);
+    clearTxTimer(id);
+  }
+  // Close all connection pools
+  for (const [id, pool] of pools.entries()) {
+    try { await pool.end(); } catch (_) {}
+    pools.delete(id);
+    poolConfigs.delete(id);
+  }
 }
 
 module.exports = {
@@ -158,6 +265,10 @@ module.exports = {
   commit,
   rollback,
   execute,
+  cancelQuery,
   getConfig,
   getPoolStatus,
+  getTransactionStatus,
+  onTxWarning,
+  shutdownAll,
 };

@@ -22,12 +22,16 @@ export default function TabContent({
   explainQuery,
   fmtSQL,
   txAction,
+  txActive,
+  txStartedAt,
   reopenTab,
   closeTab,
   setSub,
   cellEdit,
   saveRow,
   refreshTab,
+  refreshTabDDL,
+  refreshTabIndexes,
   loadTabs,
   showHistory,
   setShowHistory,
@@ -63,6 +67,8 @@ export default function TabContent({
 }) {
   const [historySearch, setHistorySearch] = useState('');
   const [copiedIdx, setCopiedIdx] = useState(null);
+  const [txElapsed, setTxElapsed] = useState(0);
+  const [rollbackConfirm, setRollbackConfirm] = useState(false);
   const historyRef = useRef(null);
   const [querySelectedRows, setQuerySelectedRows] = useState(null);
 
@@ -125,16 +131,10 @@ export default function TabContent({
   };
 
   const loadSnippet = (snippet) => {
-    setOpenTabs(p => p.map(t =>
-      t.id === activeTab.id ? { ...t, sql: snippet.sql, db: snippet.db || t.db } : t
-    ));
-    // Update Monaco editor content directly (same tab won't re-mount)
-    if (edRef.current) {
-      edRef.current.setValue(snippet.sql);
-    }
+    // Create a new query tab with auto-connection (like history items do)
+    newQuery(snippet.instId, snippet.db, snippet.sql);
     setShowSnippets(false);
     setSnippetSearch('');
-    toast(`Loaded snippet: ${snippet.name}`, 'info');
   };
 
   /* Close snippet dropdown on outside click / Escape */
@@ -153,6 +153,15 @@ export default function TabContent({
   useEffect(() => {
     if (savePrompt && saveInputRef.current) saveInputRef.current.focus();
   }, [savePrompt]);
+
+  /* ----- Transaction timer: update elapsed every second ----- */
+  useEffect(() => {
+    if (!txActive || !txStartedAt) { setTxElapsed(0); return; }
+    const tick = () => setTxElapsed(Math.floor((Date.now() - txStartedAt) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [txActive, txStartedAt]);
   const setSubTab = (tid, st) => setOpenTabs(p => p.map(t => t.id === tid ? { ...t, subTab: st } : t));
 
   /* ----- History: click outside / Escape to close ----- */
@@ -235,8 +244,8 @@ export default function TabContent({
             toast={toast}
           />
         )}
-        {activeTab.subTab === 'ddl' && <DDLViewer ddl={activeTab.ddl} />}
-        {activeTab.subTab === 'indexes' && <IndexesViewer indexes={activeTab.indexes} />}
+        {activeTab.subTab === 'ddl' && <DDLViewer ddl={activeTab.ddl} onRefresh={() => refreshTabDDL(activeTab)} />}
+        {activeTab.subTab === 'indexes' && <IndexesViewer indexes={activeTab.indexes} onRefresh={() => refreshTabIndexes(activeTab)} />}
       </div>
     );
   }
@@ -299,10 +308,25 @@ export default function TabContent({
           )}
         </div>
         <div className="editor-toolbar-right" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <button className="btn btn-sm" onClick={() => txAction('begin')} title="Begin Transaction">{I.tx} Begin</button>
-          <button className="btn btn-sm" onClick={() => txAction('commit')} title="Commit">Commit</button>
-          <button className="btn btn-sm" onClick={() => txAction('rollback')} title="Rollback">Rollback</button>
-          {running && <button className="btn btn-sm" onClick={cancelQuery} title="Cancel Running Query" style={{ color: 'var(--red)' }}>✕ Stop</button>}
+          {/* ── Transaction group ── */}
+          {!txActive ? (
+            <button className="btn btn-sm" onClick={() => txAction('begin')} title="Begin Transaction">{I.tx} Begin Tx</button>
+          ) : (
+            <>
+              <span className={`tx-badge${txElapsed > 300 ? ' tx-badge-warn' : ''}`} title={`Active for ${Math.floor(txElapsed/60)}m ${txElapsed%60}s`}>
+                {I.tx} TX {txElapsed > 0 ? `${Math.floor(txElapsed/60)}:${String(txElapsed%60).padStart(2,'0')}` : ''}
+              </span>
+              <button className="btn btn-sm tx-commit" onClick={() => txAction('commit')} title="Commit">✓ Commit</button>
+              {rollbackConfirm ? (
+                <>
+                  <button className="btn btn-sm" style={{ color: 'var(--red)' }} onClick={() => { setRollbackConfirm(false); txAction('rollback'); }} title="Confirm Rollback">Sure?</button>
+                  <button className="btn btn-sm" onClick={() => setRollbackConfirm(false)}>Cancel</button>
+                </>
+              ) : (
+                <button className="btn btn-sm tx-rollback" onClick={() => setRollbackConfirm(true)} title="Rollback">{I.close} Rollback</button>
+              )}
+            </>
+          )}
           <span className="toolbar-spacer" />
           <button className="btn btn-sm" onClick={() => setShowHistory(p => !p)} title="Query History (Ctrl+H)" style={{ position: 'relative' }}>
             ⌛ History
@@ -377,7 +401,13 @@ export default function TabContent({
           </div>
           <button className="btn btn-sm" onClick={fmtSQL} title="Format SQL">{I.fmt} Format</button>
           <button className="btn btn-sm" onClick={explainQuery} disabled={!selInst} title="Explain (Ctrl+Shift+Enter)">{I.search} Explain</button>
-          <button className="run-btn" onClick={execQuery} disabled={!selInst} title="Run (Ctrl+Enter)">{I.run} Run</button>
+          {running ? (
+            <button className="run-btn run-btn-stop" onClick={cancelQuery} title="Stop (Ctrl+Enter / Esc)" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 14, lineHeight: 1 }}>■</span> Stop
+            </button>
+          ) : (
+            <button className="run-btn" onClick={execQuery} disabled={!selInst} title="Run (Ctrl+Enter)">{I.run} Run</button>
+          )}
         </div>
       </div>
 
@@ -396,7 +426,8 @@ export default function TabContent({
             edRef.current = ed;
             const m = monacoRef.current;
             if (m) {
-              ed.addAction({ id: 'run', label: 'Run', keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.Enter], run: () => execQuery() });
+              ed.addAction({ id: 'run', label: 'Run / Cancel', keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.Enter], run: () => running ? cancelQuery() : execQuery() });
+              ed.addAction({ id: 'cancel', label: 'Cancel Query', keybindings: [m.KeyCode.Escape], run: () => running && cancelQuery() });
               ed.addAction({ id: 'explain', label: 'Explain', keybindings: [m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter], run: () => explainQuery() });
               ed.addAction({ id: 'triggerSuggest', label: 'Trigger Suggest', keybindings: [m.KeyMod.CtrlCmd | m.KeyCode.Space], run: () => ed.trigger('keyboard', 'editor.action.triggerSuggest', {}) });
               ed.addAction({ id: 'reopenTab', label: 'Reopen Closed Tab', keybindings: [m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.KeyT], run: () => reopenTab() });
@@ -495,7 +526,24 @@ export default function TabContent({
                 {activeTab.error ? <span style={{ color: 'var(--red)' }}>Error: {activeTab.error}</span>
                   : activeTab.singleResult && !activeTab.singleResult.isSelect ? (
                     <span className="stat">OK, <span className="stat-value">{activeTab.singleResult.affectedRows ?? 0}</span> row(s) affected{activeTab.singleResult.changedRows ? ` (${activeTab.singleResult.changedRows} changed)` : ''}{activeTab.singleResult.elapsed != null ? <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>{activeTab.singleResult.elapsed}ms</span> : null}</span>
-                  ) : <><span className="stat">Rows: <span className="stat-value">{activeTab.results?.length ?? 0}</span></span>{activeTab.singleResult?.elapsed != null && <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>{activeTab.singleResult.elapsed}ms</span>}</>}
+                  ) : (<>
+                    <span className="stat">
+                      <span style={{ color: 'var(--text-muted)' }}>Rows: </span>
+                      <span className="stat-value" style={(activeTab.results?.length ?? 0) > 100000 ? { color: 'var(--orange, #d97706)' } : {}}>
+                        {(activeTab.results?.length ?? 0).toLocaleString()}
+                      </span>
+                      {(activeTab.results?.length ?? 0) >= 100000 && (
+                        <span style={{ fontSize: 10, color: 'var(--orange, #d97706)', marginLeft: 6, fontWeight: 500 }}>
+                          large result
+                        </span>
+                      )}
+                    </span>
+                    {activeTab.singleResult?.elapsed != null && (
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>
+                        {activeTab.singleResult.elapsed}ms
+                      </span>
+                    )}
+                  </>)}
               </div>
               <div className="result-actions">
                 <button className="btn btn-sm" onClick={() => {

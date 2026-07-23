@@ -7,9 +7,6 @@ const crypto = require('crypto');
 const XLSX = require('xlsx');
 const db = require('./db');
 
-// Track running queries for cancellation
-const runningQueries = new Map();
-
 // Determine data directory: Electron uses userData, standalone uses __dirname
 function getDataDir() {
   if (process.env.DATA_DIR) return process.env.DATA_DIR;
@@ -368,6 +365,29 @@ app.get('/api/table-ddl', async (req, res) => {
   }
 });
 
+// Estimate row count for a table (using information_schema, fast approximate)
+app.get('/api/table-estimate', async (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const schema = resolveDatabase(req, instanceId);
+    const table = req.query.table;
+    if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
+    const result = await db.execute(instanceId,
+      `SELECT TABLE_ROWS, AVG_ROW_LENGTH, DATA_LENGTH FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
+      [schema, table]
+    );
+    const row = result.rows?.[0] || {};
+    const rowCount = row.TABLE_ROWS ?? 0;
+    const avgRowLen = row.AVG_ROW_LENGTH ?? 100;
+    const dataLen = row.DATA_LENGTH ?? 0;
+    // Heuristic: estimate ~1.5x data length for SQL dump (INSERT statements add overhead)
+    const estimatedDumpSize = dataLen > 0 ? Math.round(dataLen * 1.5) : rowCount * avgRowLen * 1.5;
+    res.json({ ok: true, rowCount, dataLength: dataLen, estimatedDumpSize });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/table-indexes', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
@@ -545,6 +565,17 @@ app.post('/api/transaction', async (req, res) => {
   }
 });
 
+// Transaction status — polled by frontend for timeout warnings
+app.get('/api/transaction-status', (req, res) => {
+  try {
+    const instanceId = resolveInstanceId(req);
+    const status = db.getTransactionStatus(instanceId);
+    res.json({ ok: true, ...status });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Safe identifier escaping for MySQL backtick identifiers
 function escapeId(id) {
   return '`' + String(id).replace(/`/g, '``') + '`';
@@ -635,21 +666,9 @@ app.get('/api/autocomplete', async (req, res) => {
 
 app.post('/api/cancel-query', async (req, res) => {
   try {
-    const instanceId = req.body.instanceId || 'default';
-    const entry = runningQueries.get(instanceId);
-    if (entry && entry.connection) {
-      try {
-        // Kill the connection to cancel the query
-        await entry.connection.query('KILL QUERY ?', [entry.connection.threadId]);
-      } catch (e) {
-        // Connection might already be dead
-      }
-      try { entry.connection.destroy(); } catch (_) {}
-      runningQueries.delete(instanceId);
-      res.json({ ok: true });
-    } else {
-      res.json({ ok: true, message: 'No running query' });
-    }
+    const instanceId = resolveInstanceId(req);
+    const killed = await db.cancelQuery(instanceId);
+    res.json({ ok: true, killed });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -704,6 +723,8 @@ app.post('/api/export', async (req, res) => {
     const result = await db.execute(instanceId, sql);
     const fields = result.fields || [];
     const rows = result.rows || [];
+    // Signal row count via header so frontend can display it
+    res.setHeader('X-Results-Count', String(rows.length));
 
     if (format === 'json') {
       res.setHeader('Content-Type', 'application/json');
@@ -749,7 +770,7 @@ app.post('/api/export', async (req, res) => {
 app.post('/api/dump', async (req, res) => {
   try {
     const instanceId = req.body.instanceId || 'default';
-    const { database, table, mode = 'all' } = req.body;
+    const { database, table, mode = 'all', maxDataRows = 100000 } = req.body;
     if (!database) return res.status(400).json({ error: 'database required' });
 
     const modeLabel = { all: 'Structure + Data', structure: 'Structure Only', data: 'Data Only' }[mode] || 'all';
@@ -763,7 +784,7 @@ app.post('/api/dump', async (req, res) => {
 
     if (table) {
       // Single table dump
-      await dumpTable(db, instanceId, database, table, output, mode);
+      await dumpTable(db, instanceId, database, table, output, mode, maxDataRows);
     } else {
       // Full database dump
       const colsResult = await db.execute(instanceId,
@@ -772,7 +793,7 @@ app.post('/api/dump', async (req, res) => {
       );
       const tables = (colsResult.rows || []).map(r => r.TABLE_NAME);
       for (const tbl of tables) {
-        await dumpTable(db, instanceId, database, tbl, output, mode);
+        await dumpTable(db, instanceId, database, tbl, output, mode, maxDataRows);
         output.push('');
       }
     }
@@ -789,7 +810,7 @@ app.post('/api/dump', async (req, res) => {
   }
 });
 
-async function dumpTable(db, instanceId, database, tableName, output, mode = 'all') {
+async function dumpTable(db, instanceId, database, tableName, output, mode = 'all', maxDataRows = 100000) {
   output.push(`-- --------------------------------------------------------`);
   output.push(`-- Table: ${database}.${tableName}`);
   output.push(`-- --------------------------------------------------------`);
@@ -812,11 +833,12 @@ async function dumpTable(db, instanceId, database, tableName, output, mode = 'al
     }
   }
 
-  // SELECT * data
   if (includeData) {
     try {
       const dataResult = await db.execute(instanceId,
-        `SELECT * FROM ${escapeId(database)}.${escapeId(tableName)}`
+        maxDataRows > 0
+          ? `SELECT * FROM ${escapeId(database)}.${escapeId(tableName)} LIMIT ${maxDataRows}`
+          : `SELECT * FROM ${escapeId(database)}.${escapeId(tableName)}`
       );
       const rows = dataResult.rows || [];
       const fields = dataResult.fields || [];
@@ -827,7 +849,11 @@ async function dumpTable(db, instanceId, database, tableName, output, mode = 'al
         return;
       }
 
+      // Check if data was truncated
       output.push(`-- Data for ${tableName} (${rows.length} rows)`);
+      if (maxDataRows > 0 && rows.length >= maxDataRows) {
+        output.push(`-- WARNING: Data truncated at ${maxDataRows} rows. Total may exceed this limit.`);
+      }
       output.push('');
 
       const fieldNames = fields.map(f => f.name);
@@ -857,6 +883,297 @@ function escapeSqlVal(val) {
   return `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
+/* ==================== Version Update ==================== */
+const https = require('https');
+const os = require('os');
+const { execFile } = require('child_process');
+const APP_VERSION = require('./package.json').version;
+const GITHUB_REPO = 'chenjunwenhao/Surge';
+const ALLOWED_DOWNLOAD_HOSTS = /^https:\/\/(github\.com|objects\.githubusercontent\.com)\//;
+const MAX_CONCURRENT_DOWNLOADS = 3;
+
+function httpsGetJson(url, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirects > 5) return reject(new Error('Too many redirects'));
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'Surge-Update-Checker', 'Accept': 'application/vnd.github+json' },
+      timeout: 15000,
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        return resolve(httpsGetJson(res.headers.location, redirects + 1));
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`GitHub API returned ${res.statusCode}`));
+      }
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('Invalid JSON from GitHub API')); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(new Error('GitHub API timeout')); });
+    req.on('error', reject);
+  });
+}
+
+// Compare semver a vs b: 1 if a>b, -1 if a<b, 0 if equal.
+// Pre-release versions (beta/rc) are considered LOWER than the same core version.
+function compareVersions(a, b) {
+  const parse = (v) => {
+    const cleaned = String(v).replace(/^v/, '');
+    const dash = cleaned.indexOf('-');
+    const core = dash >= 0 ? cleaned.slice(0, dash) : cleaned;
+    const pre = dash >= 0 ? cleaned.slice(dash + 1) : '';
+    return {
+      parts: core.split('.').map(n => parseInt(n, 10) || 0),
+      isPreRelease: pre.length > 0,
+    };
+  };
+  const pa = parse(a), pb = parse(b);
+  // Core version comparison
+  for (let i = 0; i < 3; i++) {
+    if ((pa.parts[i] || 0) > (pb.parts[i] || 0)) return 1;
+    if ((pa.parts[i] || 0) < (pb.parts[i] || 0)) return -1;
+  }
+  // Same core: non-pre-release > pre-release
+  if (!pa.isPreRelease && pb.isPreRelease) return 1;
+  if (pa.isPreRelease && !pb.isPreRelease) return -1;
+  return 0;
+}
+
+// Pick the platform-appropriate zip asset from a GitHub release
+function pickZipAsset(assets) {
+  const list = assets || [];
+  const zips = list.filter(a => /\.zip$/i.test(a.name) && !/portable/i.test(a.name));
+  if (process.platform === 'darwin') {
+    // Prefer arch-matching zip, e.g. Surge-2.4.0-arm64-mac.zip
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    return zips.find(a => /mac/i.test(a.name) && a.name.includes(arch))
+        || zips.find(a => /mac/i.test(a.name))
+        || null;
+  }
+  // Windows: e.g. Surge-2.4.0-win.zip
+  return zips.find(a => /win/i.test(a.name)) || null;
+}
+
+app.get('/api/check-update', async (req, res) => {
+  try {
+    const release = await httpsGetJson(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+    const latest = String(release.tag_name || '').replace(/^v/, '');
+    if (!latest) return res.json({ ok: false, error: 'No release found' });
+    const hasUpdate = compareVersions(latest, APP_VERSION) > 0;
+    const zipAsset = pickZipAsset(release.assets);
+    res.json({
+      ok: true,
+      current: APP_VERSION,
+      latest,
+      hasUpdate,
+      zipUrl: zipAsset ? zipAsset.browser_download_url : null,
+      zipSize: zipAsset ? zipAsset.size : 0,
+      pageUrl: release.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`,
+      notes: release.body || '',
+      publishedAt: release.published_at || '',
+    });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// Per-session state for in-flight downloads (keyed by downloadId)
+const downloadSessions = new Map();
+let activeDownloads = 0;
+
+function downloadFile(url, session, onProgress, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirects > 5) return reject(new Error('Too many redirects'));
+    // Re-validate redirect targets against the allow-list
+    if (!ALLOWED_DOWNLOAD_HOSTS.test(url)) {
+      return reject(new Error('Blocked redirect to untrusted host'));
+    }
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'Surge-Update-Checker', 'Accept': 'application/octet-stream' },
+      timeout: 30000,
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        return resolve(downloadFile(res.headers.location, session, onProgress, redirects + 1));
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+      }
+      const total = parseInt(res.headers['content-length'] || '0', 10);
+      let downloaded = 0;
+      const dest = session.zipPath;
+      const file = fs.createWriteStream(dest);
+      session.req = req;
+
+      // Prevent duplicate settle (res error + file error may both fire)
+      let settled = false;
+      const settle = (fn) => (...args) => {
+        if (settled) return;
+        settled = true;
+        try { file.destroy(); } catch (_) {}
+        try { fs.unlink(dest, () => {}); } catch (_) {}
+        fn(...args);
+      };
+
+      res.on('data', chunk => {
+        downloaded += chunk.length;
+        onProgress(downloaded, total);
+      });
+      res.pipe(file);
+      file.on('finish', () => file.close(() => resolve()));
+      file.on('error', settle(reject));
+      res.on('error', settle(reject));
+    });
+    req.on('timeout', () => { req.destroy(new Error('Download timeout')); });
+    req.on('error', reject);
+  });
+}
+
+function extractZip(zipPath, destDir) {
+  return new Promise((resolve, reject) => {
+    const validate = () => {
+      // Defend against zip-slip / path-traversal
+      try {
+        const root = path.resolve(destDir) + path.sep;
+        const walk = (dir) => {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const e of entries) {
+            const full = path.resolve(dir, e.name);
+            if (!full.startsWith(root)) {
+              throw new Error('Path traversal detected in zip: ' + full);
+            }
+            if (e.isDirectory()) walk(full);
+          }
+        };
+        walk(destDir);
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    if (process.platform === 'darwin') {
+      // ditto preserves symlinks, permissions & code signature (critical for .app)
+      execFile('ditto', ['-x', '-k', zipPath, destDir], (err) => err ? reject(err) : validate());
+    } else {
+      execFile('powershell.exe', ['-NoProfile', '-Command',
+        `Expand-Archive -LiteralPath "${zipPath}" -DestinationPath "${destDir}" -Force`],
+        (err) => err ? reject(err) : validate());
+    }
+  });
+}
+
+// SSE endpoint: downloads zip, extracts, streams progress
+app.get('/api/download-update', async (req, res) => {
+  const { url, version } = req.query;
+  if (!url || !version) {
+    return res.status(400).json({ ok: false, error: 'url and version required' });
+  }
+  // Only allow downloads from GitHub release assets of this repo
+  if (!ALLOWED_DOWNLOAD_HOSTS.test(url)) {
+    return res.status(400).json({ ok: false, error: 'Invalid download URL' });
+  }
+
+  // Rate-limit concurrent downloads
+  if (activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
+    return res.status(429).json({ ok: false, error: 'Too many concurrent downloads — try again later' });
+  }
+  activeDownloads++;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (event, data) => {
+    try {
+      const ok = res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      if (!ok) {
+        console.warn('[sse] backpressure on download session');
+      }
+    } catch (_) {
+      // Client disconnected, mark cancelled
+      const s = downloadSessions.get(downloadId);
+      if (s) s.cancelled = true;
+    }
+  };
+
+  const workDir = path.join(os.tmpdir(), `surge-update-v${version}`);
+  const zipPath = path.join(workDir, 'update.zip');
+  const downloadId = crypto.randomUUID();
+  const session = { cancelled: false, req: null, zipPath, done: false };
+  downloadSessions.set(downloadId, session);
+
+  // 10-minute overall timeout
+  const timeout = setTimeout(() => {
+    if (!session.done) {
+      session.cancelled = true;
+      try { session.req?.destroy(); } catch (_) {}
+      try { res.end(); } catch (_) {}
+    }
+  }, 10 * 60 * 1000);
+
+  req.on('close', () => {
+    // Client disconnected (cancel): abort in-flight request
+    if (!session.done) {
+      session.cancelled = true;
+      try { session.req?.destroy(); } catch (_) {}
+    }
+  });
+
+  try {
+    // Clean previous attempts
+    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.mkdirSync(workDir, { recursive: true });
+
+    let lastPct = -1;
+    await downloadFile(url, session, (downloaded, total) => {
+      const pct = total ? Math.floor((downloaded / total) * 100) : 0;
+      if (pct !== lastPct) {
+        lastPct = pct;
+        send('progress', {
+          percent: pct,
+          downloaded: (downloaded / 1048576).toFixed(1) + ' MB',
+          total: total ? (total / 1048576).toFixed(1) + ' MB' : '?',
+        });
+      }
+    });
+    if (session.cancelled) throw new Error('Cancelled');
+
+    send('progress', { percent: 100, extracting: true });
+    const extractDir = path.join(workDir, 'extracted');
+    fs.mkdirSync(extractDir, { recursive: true });
+    await extractZip(zipPath, extractDir);
+    if (session.cancelled) throw new Error('Cancelled');
+
+    // Locate payload: mac zip contains Surge.app; win zip contains exe + resources
+    let extractedPath = extractDir;
+    if (process.platform === 'darwin') {
+      const appEntry = fs.readdirSync(extractDir).find(n => n.endsWith('.app'));
+      if (!appEntry) throw new Error('No .app found in update package');
+      extractedPath = path.join(extractDir, appEntry);
+    }
+    fs.rmSync(zipPath, { force: true });
+
+    session.done = true;
+    send('complete', { ok: true, extractedPath });
+  } catch (err) {
+    session.done = true;
+    fs.rmSync(workDir, { recursive: true, force: true });
+    send('error', { ok: false, error: err.message });
+  } finally {
+    clearTimeout(timeout);
+    downloadSessions.delete(downloadId);
+    activeDownloads--;
+    res.end();
+  }
+});
+
 app.get('*', (req, res) => {
   const target = fs.existsSync(distPath)
     ? path.join(distPath, 'index.html')
@@ -882,4 +1199,4 @@ if (require.main === module) {
   startServer(PORT).catch(err => { console.error('Failed to start:', err); process.exit(1); });
 }
 
-module.exports = { app, startServer, runningQueries };
+module.exports = { app, startServer };

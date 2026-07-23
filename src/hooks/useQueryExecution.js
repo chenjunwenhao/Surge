@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import api from '../utils/api';
 import formatSQL from '../utils/sqlFormatter';
 
@@ -98,6 +98,7 @@ export default function useQueryExecution({
     let effInstId = activeTab.instId;
     try {
       effInstId = await ensureConnected(activeTab.instId);
+      runInstRef.current = effInstId;
       if (effInstId !== activeTab.instId) {
         setOpenTabs(p => p.map(t => t.id === activeTab.id ? { ...t, instId: effInstId } : t));
       }
@@ -150,6 +151,7 @@ export default function useQueryExecution({
     } finally {
       clearInterval(timerRef.current);
       if (abortRef.current === controller) abortRef.current = null;
+      runInstRef.current = null;
       setRunning(false);
     }
   }, [activeTab, ensureConnected, loadTabs]);
@@ -165,9 +167,13 @@ export default function useQueryExecution({
   }, [activeTab]);
 
   /* ----- Cancel running query ----- */
+  const runInstRef = useRef(null);
   const cancelQuery = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
+    if (abortRef.current) abortRef.current.abort();
+    // Also kill the query on the server side
+    if (runInstRef.current) {
+      api('/api/cancel-query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instanceId: runInstRef.current }) }).catch(() => {});
+      runInstRef.current = null;
     }
   }, []);
 
@@ -195,14 +201,31 @@ export default function useQueryExecution({
   }, [activeTab, ensureConnected]);
 
   /* ----- Transaction ----- */
+  const [txActive, setTxActive] = useState(false);
+  const [txStartedAt, setTxStartedAt] = useState(null);
+  const txTimerRef = useRef(null);
+
   const txAction = useCallback(async (action) => {
     if (!selInst) { err('No instance selected'); return; }
     const r = await doTx(selInst.id, action);
-    if (r.ok) setStatus(`TX ${action} OK`);
-    else err(r.error);
+    if (r.ok) {
+      if (action === 'begin') {
+        setTxActive(true);
+        setTxStartedAt(Date.now());
+      } else {
+        setTxActive(false);
+        setTxStartedAt(null);
+      }
+      setStatus(`TX ${action} OK`);
+    } else {
+      // If commit/rollback fails, tx might still be active — keep state
+      if (action === 'begin') { setTxActive(false); setTxStartedAt(null); }
+      err(r.error);
+    }
   }, [selInst, doTx, err]);
 
   return {
     doQuery, execQuery, fmtSQL, cancelQuery, explainQuery, txAction,
+    txActive, txStartedAt,
   };
 }

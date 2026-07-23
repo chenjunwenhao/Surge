@@ -15,6 +15,9 @@ import useMonacoAutocomplete from './hooks/useMonacoAutocomplete';
 import useSidebar from './hooks/useSidebar';
 import useConnections from './hooks/useConnections';
 import useQueryExecution from './hooks/useQueryExecution';
+import useUpdateCheck from './hooks/useUpdateCheck';
+import UpdateModal from './components/UpdateModal';
+import { version as APP_VERSION } from '../package.json';
 
 /* ==================== MAIN APP ==================== */
 export default function App() {
@@ -51,6 +54,7 @@ export default function App() {
   const [tabCtxMenu, setTabCtxMenu] = useState(null);
   const [genSqlModal, setGenSqlModal] = useState(null);
   const [importModal, setImportModal] = useState(null);
+  const [dumpConfirm, setDumpConfirm] = useState(null); // { instId, dbName, tName, mode, estimate, ... }
   const [sidebarFocusIdx, setSidebarFocusIdx] = useState(null);
   const sidebarScrollRef = useRef(null);
 
@@ -140,6 +144,22 @@ export default function App() {
   const toast = useToast();
   const err = useCallback(m => { setStatus(`Error: ${m}`); toast(m, 'error'); }, [toast]);
 
+  /* ----- Update check ----- */
+  const { checkUpdate, autoCheck, skipVersion } = useUpdateCheck();
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const updateCheckRan = useRef(false);
+  const checkingRef = useRef(false);
+
+  // Auto-check on startup (once)
+  useEffect(() => {
+    if (updateCheckRan.current) return;
+    updateCheckRan.current = true;
+    autoCheck().then(info => {
+      if (info) { setUpdateInfo(info); setShowUpdateModal(true); }
+    });
+  }, [autoCheck]);
+
   /* ----- Auto-reconnect ----- */
   const lastPingRef = useRef({});
 
@@ -151,7 +171,7 @@ export default function App() {
   } = useSidebar({ setInstances, setOpenTabs, instancesRef, setStatus, toast, err, lastPingRef, setTreeErrors, setRefreshing });
 
   /* ----- Query execution ----- */
-  const { doQuery, execQuery, fmtSQL, cancelQuery, explainQuery, txAction } = useQueryExecution({
+  const { doQuery, execQuery, fmtSQL, cancelQuery, explainQuery, txAction, txActive, txStartedAt } = useQueryExecution({
     edRef, abortRef, timerRef, instancesRef, selInst,
     setOpenTabs, setStatus, setRunning, setQueryHistory,
     activeTab, ensureConnected, loadTabs, err,
@@ -241,14 +261,84 @@ export default function App() {
   openTabsRef.current = openTabs;
   const selInstRef = useRef(selInst);
   selInstRef.current = selInst;
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const savedConnsRef = useRef(savedConns);
+  savedConnsRef.current = savedConns;
   const refs = useRef({ activeTabId: null, closeTab: null, showHistory: false, setShowHistory: null });
 
+  // Helper: extract connection name from instId pattern "name-1234567890"
+  function connNameFromInstId(instId) {
+    const idx = instId.lastIndexOf('-');
+    if (idx > 0 && /^\d+$/.test(instId.slice(idx + 1))) return instId.slice(0, idx);
+    return instId;
+  }
+
+  // Helper: try to auto-connect to a saved connection by instId pattern
+  function tryAutoConnect(instId) {
+    if (!instId) return null;
+    const connName = connNameFromInstId(instId);
+    const saved = savedConnsRef.current?.find(c => c.name === connName || c.id === connName);
+    if (!saved) return null;
+    return { saved, connName };
+  }
+
   /* ----- New query tab ----- */
-  const newQuery = useCallback((instId, db, sql) => {
+  const newQuery = useCallback(async (instId, db, sql) => {
     const currentSelInst = selInstRef.current;
     const currentOpenTabs = openTabsRef.current;
-    const effInstId = instId || currentSelInst?.id || '';
-    const effDb = db || currentSelInst?.config?.database || '';
+    const currentActiveTab = activeTabRef.current;
+
+    // Best-effort instance resolution: history instId → selected instance
+    // (Never fall back to currentActiveTab.instId — it propagates stale IDs from failed opens)
+    let effInstId = instId || currentSelInst?.id || '';
+    // If the resolved ID doesn't match any connected instance, try by connection name
+    if (effInstId && !instancesRef.current?.find(i => i.id === effInstId)) {
+      const connName = connNameFromInstId(effInstId);
+      const byName = instancesRef.current?.find(i => i.name === connName && i.connected);
+      effInstId = byName?.id || '';
+    }
+
+    // If no connected instance resolved, try auto-connect from saved configs
+    const hasConnected = effInstId && instancesRef.current?.find(i => i.id === effInstId && i.connected);
+    if (!hasConnected) {
+      const ac = tryAutoConnect(instId) || tryAutoConnect(effInstId);
+      if (ac) {
+        setStatus(`Auto-connecting to ${ac.saved.name}...`);
+        try {
+          const newInstId = await connSaved(ac.saved);
+          effInstId = newInstId || '';
+          if (!effInstId) { setStatus('Auto-connect failed — please connect manually'); return; }
+        } catch (e2) {
+          setStatus('Auto-connect failed: ' + (e2.message || String(e2)));
+          return;
+        }
+      }
+    }
+
+    // Ensure the instance connection is alive (critical for history items from old sessions)
+    if (effInstId) {
+      try { effInstId = await ensureConnected(effInstId); } catch (e) {
+        // ensureConnected failed — instance exists but connection is dead. Try auto-connect.
+        const ac = tryAutoConnect(effInstId) || tryAutoConnect(instId);
+        if (ac) {
+          setStatus(`Auto-connecting to ${ac.saved.name}...`);
+          try {
+            const newInstId = await connSaved(ac.saved);
+            effInstId = newInstId || '';
+            if (!effInstId) { setStatus('Auto-connect failed — please connect manually'); return; }
+          } catch (e2) {
+            setStatus('Auto-connect failed: ' + (e2.message || String(e2)));
+            return;
+          }
+        } else {
+          setStatus('Connection lost — please reconnect');
+          return;
+        }
+      }
+    }
+
+    const effDb = db || currentActiveTab?.db || currentSelInst?.config?.database || '';
     const tid = `q:${Date.now()}`;
     const title = effDb ? `Query ${currentOpenTabs.filter(t => t.type === 'query').length + 1} \u00B7 ${effDb}` : `Query ${currentOpenTabs.filter(t => t.type === 'query').length + 1}`;
     const effSql = sql || (effDb ? `-- ${effDb}\nSELECT 1;` : 'SELECT 1;');
@@ -257,7 +347,9 @@ export default function App() {
     setShowQueryPicker(false);
     setPickerDbSearch('');
     if (effDb) loadTabs(effInstId, effDb);
-  }, [loadTabs]);
+    // Ensure databases are loaded for the instance so the db-picker works
+    if (effInstId) loadDbs(effInstId);
+  }, [loadTabs, loadDbs, ensureConnected, connSaved]);
 
   /* ----- Open console for DB ----- */
   const openConsole = useCallback((instId, dbName) => {
@@ -270,6 +362,14 @@ export default function App() {
 
   /* ----- Close / Reopen tab ----- */
   const closeTab = useCallback((tid) => {
+    // Warn if transaction is active for this tab's instance
+    if (txActive) {
+      const tab = openTabs.find(t => t.id === tid);
+      if (tab && tab.instId === selInst?.id) {
+        toast('Commit or rollback your transaction before closing this tab', 'warning');
+        return;
+      }
+    }
     setOpenTabs(p => {
       const tab = p.find(t => t.id === tid);
       if (tab) setClosedTabs(prev => [tab, ...prev].slice(0, 20));
@@ -277,7 +377,7 @@ export default function App() {
       if (activeTabId === tid) setActiveTabId(r.length ? r[r.length - 1].id : null);
       return r;
     });
-  }, [activeTabId]);
+  }, [activeTabId, txActive, selInst, openTabs, toast]);
 
   const closeOtherTabs = useCallback((tid) => {
     setOpenTabs(p => p.filter(t => t.id === tid));
@@ -393,6 +493,37 @@ export default function App() {
       setStatus(`Refresh failed: ${e.message || String(e)}`);
     }
   }, [doQuery, loadCols]);
+
+  /* ----- Refresh table DDL tab ----- */
+  const refreshTabDDL = useCallback(async (tab) => {
+    setStatus('Refreshing DDL...');
+    setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: true } : t));
+    try {
+      const [ddl, fks] = await Promise.all([
+        loadDDL(tab.instId, tab.dbName, tab.tName),
+        loadFKs(tab.instId, tab.dbName, tab.tName),
+      ]);
+      setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: false, ddl, foreignKeys: fks } : t));
+      setStatus(`${tab.tName} — DDL refreshed`);
+    } catch (e) {
+      setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: false } : t));
+      setStatus(`DDL refresh failed: ${e.message || String(e)}`);
+    }
+  }, [loadDDL, loadFKs]);
+
+  /* ----- Refresh table Indexes tab ----- */
+  const refreshTabIndexes = useCallback(async (tab) => {
+    setStatus('Refreshing indexes...');
+    setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: true } : t));
+    try {
+      const indexes = await loadIdx(tab.instId, tab.dbName, tab.tName);
+      setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: false, indexes } : t));
+      setStatus(`${tab.tName} — ${indexes?.length || 0} indexes refreshed`);
+    } catch (e) {
+      setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: false } : t));
+      setStatus(`Indexes refresh failed: ${e.message || String(e)}`);
+    }
+  }, [loadIdx]);
 
   /* ----- Insert row ----- */
   const insertRow = useCallback(async (tab, row) => {
@@ -540,6 +671,40 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  /* ----- Transaction timeout polling ----- */
+  useEffect(() => {
+    if (!txActive || !selInst?.id) return;
+    const instId = selInst.id;
+    let lastWarn = '';
+    let wasActive = true;
+    const poll = async () => {
+      try {
+        const resp = await fetch(`/api/transaction-status?instanceId=${encodeURIComponent(instId)}`);
+        const data = await resp.json();
+        if (!data.ok || !data.active) {
+          if (wasActive) {
+            // Transaction ended (likely auto-rollback)
+            toast('Transaction has ended (auto-rollback or disconnect)', 'warning');
+            wasActive = false;
+          }
+          return;
+        }
+        const mins = Math.floor(data.elapsed / 60000);
+        const elapsedLabel = mins > 0 ? `${mins}m` : `${Math.floor(data.elapsed / 1000)}s`;
+        if (data.elapsed >= 15 * 60 * 1000) {
+          const msg = `Transaction running for ${elapsedLabel} — will auto-rollback at 30min`;
+          if (lastWarn !== msg) { toast(msg, 'warning'); lastWarn = msg; }
+        } else if (data.elapsed >= 5 * 60 * 1000) {
+          const msg = `Transaction running for ${elapsedLabel} — consider committing`;
+          if (lastWarn !== msg) { toast(msg, 'warning'); lastWarn = msg; }
+        }
+      } catch (_) {}
+    };
+    poll();
+    const id = setInterval(poll, 30000);
+    return () => clearInterval(id);
+  }, [txActive, selInst?.id, toast]);
+
   /* ----- Export result ----- */
   const exportResult = useCallback(async (format) => {
     if (!activeTab) return;
@@ -571,15 +736,33 @@ export default function App() {
 
   /* ----- Export Dump ----- */
   const onDump = useCallback(async (instId, dbName, tName, mode = 'all') => {
+    // If data dump mode, fetch row estimate first for confirmation
+    if (tName && mode !== 'structure') {
+      try {
+        const resp = await fetch(`/api/table-estimate?instanceId=${encodeURIComponent(instId)}&database=${encodeURIComponent(dbName)}&table=${encodeURIComponent(tName)}`);
+        const data = await resp.json();
+        if (data.ok) {
+          setDumpConfirm({ instId, dbName, tName, mode, estimate: data, label });
+          return;
+        }
+      } catch (_) { /* fall through to direct dump */ }
+    }
+    // No estimate needed: just dump (structure only, or full database, or estimate failed)
+    performDump(instId, dbName, tName, mode);
+  }, [toast]);
+
+  const performDump = useCallback(async (instId, dbName, tName, mode, maxDataRows) => {
     const modeLabel = { all: 'Structure + Data', structure: 'Structure Only', data: 'Data Only' }[mode] || mode;
     const label = tName ? `${tName}` : dbName;
     try {
       setStatus(`Exporting dump (${modeLabel}) for ${label}...`);
       toast(`Exporting dump (${modeLabel}) for ${label}...`);
+      const body = { instanceId: instId, database: dbName, table: tName || undefined, mode };
+      if (maxDataRows) body.maxDataRows = maxDataRows;
       const resp = await fetch('/api/dump', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instanceId: instId, database: dbName, table: tName || undefined, mode }),
+        body: JSON.stringify(body),
       });
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
@@ -647,6 +830,24 @@ export default function App() {
               <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>github.com/chenjunwenhao/Surge</span>
             </span>
           </a>
+          <button
+            className={`update-btn${updateInfo ? ' has-update' : ''}`}
+            onClick={async () => {
+              if (updateInfo) { setShowUpdateModal(true); return; }
+              if (checkingRef.current) return;
+              checkingRef.current = true;
+              toast('Checking for updates...');
+              const info = await checkUpdate();
+              checkingRef.current = false;
+              if (!info.ok) { toast('Update check failed: ' + info.error, 'error'); return; }
+              if (info.hasUpdate) { setUpdateInfo(info); setShowUpdateModal(true); }
+              else { toast('Surge is up to date (v' + info.current + ')', 'success'); }
+            }}
+            title="Check for Updates"
+          >
+            {updateInfo ? <span className="update-dot" /> : null}
+            v{updateInfo?.current || APP_VERSION}
+          </button>
           <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} title="Toggle theme">
             {theme === 'dark' ? '\u2600' : '\u263D'}
           </button>
@@ -816,12 +1017,16 @@ export default function App() {
             explainQuery={explainQuery}
             fmtSQL={fmtSQL}
             txAction={txAction}
+            txActive={txActive}
+            txStartedAt={txStartedAt}
             reopenTab={reopenTab}
             closeTab={closeTab}
             setSub={setSub}
             cellEdit={cellEdit}
             saveRow={saveRow}
             refreshTab={refreshTab}
+            refreshTabDDL={refreshTabDDL}
+            refreshTabIndexes={refreshTabIndexes}
             loadTabs={loadTabs}
             showHistory={showHistory}
             setShowHistory={setShowHistory}
@@ -875,7 +1080,7 @@ export default function App() {
       />
 
       {tabCtxMenu && (
-        <div className="context-menu" style={{ left: tabCtxMenu.x, top: tabCtxMenu.y }}>
+        <div className="context-menu" style={{ left: tabCtxMenu.x + 190 > window.innerWidth ? tabCtxMenu.x - 190 : tabCtxMenu.x, top: tabCtxMenu.y + 150 > window.innerHeight ? tabCtxMenu.y - 150 : tabCtxMenu.y }}>
           <div className="context-menu-item" onClick={() => { closeTab(tabCtxMenu.tabId); setTabCtxMenu(null); }}>{I.close} Close Tab</div>
           <div className="context-menu-item" onClick={() => { closeOtherTabs(tabCtxMenu.tabId); setTabCtxMenu(null); }}>Close Others</div>
           <div className="context-menu-item" onClick={() => { closeTabsToRight(tabCtxMenu.tabId); setTabCtxMenu(null); }}>Close to Right</div>
@@ -930,6 +1135,96 @@ export default function App() {
         onClose={() => setImportModal(null)}
         toast={toast}
       />
+
+      {/* Dump/Export confirmation dialog */}
+      {dumpConfirm && (() => {
+        const d = dumpConfirm;
+        const rc = d.estimate.rowCount;
+        const ds = d.estimate.estimatedDumpSize;
+        const fmtNum = n => n > 0 ? n.toLocaleString() : '?';
+        const fmtBytes = b => {
+          if (!b) return 'unknown';
+          if (b < 1024) return b + ' B';
+          if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+          if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB';
+          return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        };
+        const modeLabel = { all: 'Structure + Data', structure: 'Structure Only', data: 'Data Only' }[d.mode] || d.mode;
+        const isLarge = rc > 100000;
+        return (
+          <ConfirmDialog
+            show={true}
+            title={isLarge ? '⚠️ Export Large Table' : 'Export Dump'}
+            onCancel={() => setDumpConfirm(null)}
+            buttons={[
+              {
+                label: `Export First 100,000 Rows`,
+                className: 'btn btn-primary',
+                onClick: () => {
+                  setDumpConfirm(null);
+                  performDump(d.instId, d.dbName, d.tName, d.mode, 100000);
+                },
+              },
+              {
+                label: `Export All (${fmtNum(rc)} rows)`,
+                className: isLarge ? 'btn btn-danger' : 'btn',
+                onClick: () => {
+                  setDumpConfirm(null);
+                  performDump(d.instId, d.dbName, d.tName, d.mode, 0);
+                },
+              },
+              {
+                label: 'Structure Only',
+                onClick: () => {
+                  setDumpConfirm(null);
+                  performDump(d.instId, d.dbName, d.tName, 'structure');
+                },
+              },
+            ]}
+          >
+            <div style={{ lineHeight: 1.8 }}>
+              <p style={{ fontWeight: 600, fontFamily: 'monospace' }}>
+                {d.dbName}.{d.tName}
+              </p>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ color: 'var(--text-muted)', paddingRight: 16, paddingBottom: 4 }}>Mode</td>
+                    <td style={{ fontWeight: 500, paddingBottom: 4 }}>{modeLabel}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--text-muted)', paddingRight: 16, paddingBottom: 4 }}>Estimated Rows</td>
+                    <td style={{ fontWeight: 500, paddingBottom: 4, color: isLarge ? 'var(--orange, #d97706)' : undefined }}>
+                      {fmtNum(rc)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--text-muted)', paddingRight: 16, paddingBottom: 4 }}>Est. Dump Size</td>
+                    <td style={{ fontWeight: 500, paddingBottom: 4 }}>{fmtBytes(ds)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              {isLarge && (
+                <p style={{ marginTop: 8, fontSize: 12, color: 'var(--orange, #d97706)' }}>
+                  ⚠️ This table has more than 100,000 rows. Exporting fully may use significant memory and take a long time.
+                </p>
+              )}
+              <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                Note: row count is an approximate estimate from information_schema.
+              </p>
+            </div>
+          </ConfirmDialog>
+        );
+      })()}
+
+      {showUpdateModal && updateInfo && (
+        <UpdateModal
+          info={updateInfo}
+          onClose={() => setShowUpdateModal(false)}
+          onSkip={(ver) => { skipVersion(ver); setUpdateInfo(null); setShowUpdateModal(false); }}
+          toast={toast}
+        />
+      )}
     </div>
   );
 }
