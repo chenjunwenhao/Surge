@@ -994,7 +994,7 @@ function downloadFile(url, session, onProgress, redirects = 0) {
     }
     const req = https.get(url, {
       headers: { 'User-Agent': 'Surge-Update-Checker', 'Accept': 'application/octet-stream' },
-      timeout: 30000,
+      timeout: 120000,
     }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();

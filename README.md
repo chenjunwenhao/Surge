@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.4.4-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.4.5-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
@@ -41,7 +41,7 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG 安装包</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.4/Surge-2.4.4-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.5/Surge-2.4.5-arm64.dmg">
           <img src="https://img.shields.io/badge/下载_DMG-122_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
