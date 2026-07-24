@@ -846,7 +846,7 @@ export default function App() {
             title="Check for Updates"
           >
             {updateInfo ? <span className="update-dot" /> : null}
-            v{updateInfo?.current || APP_VERSION}
+            v{APP_VERSION}
           </button>
           <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} title="Toggle theme">
             {theme === 'dark' ? '\u2600' : '\u263D'}
@@ -1220,7 +1220,7 @@ export default function App() {
       {showUpdateModal && updateInfo && (
         <UpdateModal
           info={updateInfo}
-          onClose={() => setShowUpdateModal(false)}
+          onClose={() => { setUpdateInfo(null); setShowUpdateModal(false); }}
           onSkip={(ver) => { skipVersion(ver); setUpdateInfo(null); setShowUpdateModal(false); }}
           toast={toast}
         />
