@@ -146,6 +146,12 @@ export default function UpdateModal({ info, onClose, onSkip, toast }) {
               {info.notes && (
                 <pre className="release-notes">{info.notes}</pre>
               )}
+              {info.pageUrl && (
+                <a className="update-changelog-link" href={info.pageUrl} target="_blank" rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}>
+                  View full changelog &rarr;
+                </a>
+              )}
             </div>
           )}
 

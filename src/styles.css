@@ -2385,6 +2385,19 @@ th .custom-checkbox:hover {
   overflow-y: auto;
 }
 
+.update-changelog-link {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.12s;
+}
+.update-changelog-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 /* ─── Download progress ─── */
 .update-progress {
   padding: 10px 0;

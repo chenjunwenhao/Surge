@@ -1,2 +1,2 @@
-## Fixed
-- **修复更新下载超时**：GitHub Release 下载从请求到 CDN 重定向耗时较长，原 30s 超时太短。提升到 120s。
+## Added
+- **更新弹窗增加完整更新日志链接**：版本号下方新增 "View full changelog →" 链接，点击跳转 GitHub Release 页面。
