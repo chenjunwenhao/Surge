@@ -79,9 +79,10 @@ export default function QueryResultTable({ rows, fields, error, tableName, toast
       <table className="result-table">
         <thead><tr>
           {selectMode && (
-            <th style={{ width: 28, textAlign: 'center', cursor: 'pointer' }} onClick={togglePage}>
-              <input type="checkbox" checked={paged.length > 0 && paged.every(row => selected.has(rows.indexOf(row)))}
-                onChange={togglePage} style={{ margin: 0, cursor: 'pointer' }} />
+            <th style={{ width: 32, textAlign: 'center' }}>
+              <span className="custom-checkbox" onClick={(e) => { e.stopPropagation(); togglePage(); }}>
+                <span className={paged.length > 0 && paged.every(row => selected.has(rows.indexOf(row))) ? 'custom-checkbox-mark checked' : 'custom-checkbox-mark'} />
+              </span>
             </th>
           )}
           <th style={{ width: 40, textAlign: 'center' }}>#</th>
@@ -103,8 +104,9 @@ export default function QueryResultTable({ rows, fields, error, tableName, toast
               onContextMenu={(e) => onContextMenu(e, row)}>
               {selectMode && (
                 <td style={{ textAlign: 'center' }}>
-                  <input type="checkbox" checked={isSel} onChange={() => toggleRow(rowIdx)}
-                    style={{ margin: 0, cursor: 'pointer' }} />
+                  <span className="custom-checkbox" onClick={(e) => { e.stopPropagation(); toggleRow(rowIdx); }}>
+                    <span className={isSel ? 'custom-checkbox-mark checked' : 'custom-checkbox-mark'} />
+                  </span>
                 </td>
               )}
               <td style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11 }}>{rowIdx + 1}</td>

@@ -421,6 +421,42 @@ button, input, select, textarea {
   accent-color: var(--accent);
 }
 
+/* Custom checkbox — replaces native input in data grids */
+.custom-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1.5px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+  flex-shrink: 0;
+}
+.custom-checkbox:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.custom-checkbox-mark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  transition: background 0.12s, transform 0.12s;
+}
+.custom-checkbox-mark.checked {
+  background: var(--accent);
+  border-radius: 2px;
+}
+/* Header checkbox: slightly different */
+th .custom-checkbox {
+  border-color: var(--text-muted);
+}
+th .custom-checkbox:hover {
+  border-color: var(--accent);
+}
+
 /* Saved Connections */
 .saved-item {
   display: flex;

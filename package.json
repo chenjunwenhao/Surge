@@ -1,6 +1,6 @@
 {
   "name": "mysql-cli-ui",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "description": "Surge - a brutally clean MySQL desktop client",
   "main": "electron/main.js",
   "scripts": {
