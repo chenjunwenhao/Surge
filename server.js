@@ -889,7 +889,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const APP_VERSION = require('./package.json').version;
 const GITHUB_REPO = 'chenjunwenhao/Surge';
-const ALLOWED_DOWNLOAD_HOSTS = /^https:\/\/(github\.com|objects\.githubusercontent\.com)\//;
+const ALLOWED_DOWNLOAD_HOSTS = /^https:\/\/(github\.com|[a-z0-9-]+\.githubusercontent\.com)\//;
 const MAX_CONCURRENT_DOWNLOADS = 3;
 
 function httpsGetJson(url, redirects = 0) {
