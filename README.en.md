@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.4.9-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.4.10-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG installer</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.9/Surge-2.4.9-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.10/Surge-2.4.10-arm64.dmg">
           <img src="https://img.shields.io/badge/Download_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · Portable, unzip and run</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.9/Surge-2.4.9-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.10/Surge-2.4.10-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/Download_Portable-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>

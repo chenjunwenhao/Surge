@@ -158,6 +158,21 @@ async function rollback(sessionId) {
 
 const QUERY_TIMEOUT_MS = 60000; // 60-second query timeout
 
+// mysql2 parses JSON columns into JS objects; serialize them back to JSON text
+// so downstream display/export layers don't render [object Object].
+// Buffers (BLOB) and ResultSetHeader (DML, not an Array) are left untouched.
+function normalizeRows(rows) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map(row => {
+    const out = {};
+    for (const k of Object.keys(row)) {
+      const v = row[k];
+      out[k] = (typeof v === 'object' && v !== null && !Buffer.isBuffer(v)) ? JSON.stringify(v) : v;
+    }
+    return out;
+  });
+}
+
 async function autoRollbackTransaction(sessionId, reason) {
   const connection = txConnections.get(sessionId);
   if (!connection) return;
@@ -197,13 +212,13 @@ async function execute(instanceId, sql, params, sessionId) {
   const doExec = async (conn) => {
     try {
       const [rows, fields] = await conn.execute({ sql, values: params, timeout: QUERY_TIMEOUT_MS });
-      return { rows, fields };
+      return { rows: normalizeRows(rows), fields };
     } catch (e) {
       // Fallback to query() for commands not supported by prepared statement protocol
       // (e.g., USE, SET, FLUSH, CREATE USER, etc.)
       if (e.message && e.message.includes('prepared statement protocol')) {
         const [rows, fields] = await conn.query({ sql, values: params, timeout: QUERY_TIMEOUT_MS });
-        return { rows, fields };
+        return { rows: normalizeRows(rows), fields };
       }
       throw e;
     }
