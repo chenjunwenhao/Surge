@@ -18,5 +18,7 @@ const I = {
   proc: '\u2699',         // ⚙ (gear for procedure)
   func: '\u0192',         // ƒ (function/florin symbol)
   trigger: '\u26A1',      // ⚡ (lightning for trigger)
+  mysql: '\uD83D\uDC2C',   // 🐬 (dolphin)
+  pg: '\uD83D\uDC18',      // 🐘 (elephant)
 };
 export default I;

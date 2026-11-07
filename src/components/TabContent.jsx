@@ -17,7 +17,7 @@ export default function TabContent({
   setActiveTabId,
   setStatus,
   setShowModal,
-  setMName, setMHost, setMPort, setMUser, setMPass, setMDb, setMSave, setMResult,
+  setMName, setMHost, setMPort, setMUser, setMPass, setMDb, setMSave, setMResult, setMType,
   execQuery,
   explainQuery,
   fmtSQL,
@@ -188,9 +188,9 @@ export default function TabContent({
       <div className="tab-content-empty">
         <div className="big-icon">{I.server}</div>
         <h2>Surge</h2>
-        <p>Connect to a MySQL database to explore tables and run queries.</p>
+        <p>Connect to a database to explore tables and run queries.</p>
         <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => {
-          setMName(''); setMHost('127.0.0.1'); setMPort(3306); setMUser('root'); setMPass(''); setMDb(''); setMSave(true); setMResult(null); setShowModal(true);
+          setMName(''); setMHost('127.0.0.1'); setMPort(3306); setMUser('root'); setMPass(''); setMDb(''); setMSave(true); setMResult(null); setMType('mysql'); setShowModal(true);
         }}>+ New Connection</button>
         <div style={{ marginTop: 20, fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.8 }}>
           <div>Run: <b style={{ color: 'var(--text-secondary)' }}>Ctrl+Enter</b></div>

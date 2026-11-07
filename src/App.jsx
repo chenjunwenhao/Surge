@@ -163,6 +163,16 @@ export default function App() {
   /* ----- Auto-reconnect ----- */
   const lastPingRef = useRef({});
 
+  /* ----- Helper: Build table reference with correct quoting ----- */
+  const buildTableRef = useCallback((instId, schemaOrDb, tableName) => {
+    const inst = instancesRef.current.find(i => i.id === instId);
+    const isPG = inst?.config?.type === 'pg';
+    if (isPG) {
+      return `"${schemaOrDb}"."${tableName}"`;
+    }
+    return `\`${schemaOrDb}\`.\`${tableName}\``;
+  }, []);
+
   /* ----- Sidebar / data loading ----- */
   const {
     ensureConnected, loadDbs, loadTabs, loadCols, loadDDL, loadIdx, loadFKs,
@@ -180,7 +190,7 @@ export default function App() {
   /* ----- Connections ----- */
   const {
     loadSaved, testConn, modalConnect, connSaved, delSaved, editSaved, disconnectInst, askConfirm,
-    showModal, setShowModal, mName, setMName, mHost, setMHost, mPort, setMPort,
+    showModal, setShowModal, mName, setMName, mType, setMType, mHost, setMHost, mPort, setMPort,
     mUser, setMUser, mPass, setMPass, mDb, setMDb, mSave, setMSave,
     mTesting, mResult, setMResult, mEditId, setMEditId, confirmDialog, setConfirmDialog,
     connecting,
@@ -198,9 +208,10 @@ export default function App() {
     const nt = { id: tid, type: 'table', title: tName, instId: effInstId, dbName, tName, subTab: 'data', loading: true };
     setOpenTabs(p => [...p, nt]); setActiveTabId(tid);
     try {
+      const tableRef = buildTableRef(effInstId, dbName, tName);
       const [cols, qr, ddl, idx, fks] = await Promise.all([
         loadCols(effInstId, dbName, tName),
-        doQuery(effInstId, `SELECT * FROM \`${dbName}\`.\`${tName}\` LIMIT 10000`),
+        doQuery(effInstId, `SELECT * FROM ${tableRef} LIMIT 10000`),
         loadDDL(effInstId, dbName, tName),
         loadIdx(effInstId, dbName, tName),
         loadFKs(effInstId, dbName, tName),
@@ -212,7 +223,7 @@ export default function App() {
       setOpenTabs(p => p.map(t => t.id === tid ? { ...t, loading: false, error: e.message || String(e) } : t));
       setStatus(`Failed to open ${tName}: ${e.message || String(e)}`);
     }
-  }, [openTabs, loadCols, doQuery, loadDDL, loadIdx, loadFKs, ensureConnected]);
+  }, [openTabs, loadCols, doQuery, loadDDL, loadIdx, loadFKs, ensureConnected, buildTableRef]);
 
   /* ----- Open routine DDL tab ----- */
   const openRoutine = useCallback(async (instId, dbName, name, type) => {
@@ -456,6 +467,7 @@ export default function App() {
       setStatus('Rows saved: ' + saved);
       toast(saved + ' row(s) saved', 'success');
       setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, dirtyRows: {} } : t));
+      refreshTab(tab);
     } else {
       const firstErr = errors[0] || 'Unknown error';
       setStatus(`Saved ${saved}, ${failed} failed — ${firstErr}`);
@@ -473,9 +485,10 @@ export default function App() {
     setStatus('Refreshing...');
     setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: true } : t));
     try {
+      const tableRef = buildTableRef(tab.instId, tab.dbName, tab.tName);
       const [cols, qr] = await Promise.all([
         loadCols(tab.instId, tab.dbName, tab.tName),
-        doQuery(tab.instId, `SELECT * FROM \`${tab.dbName}\`.\`${tab.tName}\` LIMIT 10000`),
+        doQuery(tab.instId, `SELECT * FROM ${tableRef} LIMIT 10000`),
       ]);
       const pks = cols.filter(c => c.COLUMN_KEY === 'PRI').map(c => c.COLUMN_NAME);
       if (qr.ok) {
@@ -489,7 +502,7 @@ export default function App() {
       setOpenTabs(p => p.map(t => t.id === tab.id ? { ...t, loading: false } : t));
       setStatus(`Refresh failed: ${e.message || String(e)}`);
     }
-  }, [doQuery, loadCols]);
+  }, [doQuery, loadCols, buildTableRef]);
 
   /* ----- Refresh table DDL tab ----- */
   const refreshTabDDL = useCallback(async (tab) => {
@@ -713,7 +726,8 @@ export default function App() {
     if (tab.type === 'query' && (tab.results || tab.batchResults)) {
       sql = tab.singleResult?.sql || tab.sql || '';
     } else if (tab.type === 'table') {
-      sql = `SELECT * FROM \`${tab.dbName}\`.\`${tab.tName}\` LIMIT 10000`;
+      const tableRef = buildTableRef(tab.instId, tab.dbName, tab.tName);
+      sql = `SELECT * FROM ${tableRef} LIMIT 10000`;
     } else return;
     if (!sql) { toast('No query to export', 'warning'); return; }
     try {
@@ -866,6 +880,7 @@ export default function App() {
                 {savedConns.length === 0 ? <div className="tree-empty">None saved</div>
                   : savedConns.map(c => (
                     <div key={c.id} className="saved-item" onDoubleClick={() => connSaved(c)}>
+                      <span className={`conn-type-badge conn-type-${c.type || 'mysql'}`}>{c.type === 'pg' ? I.pg : I.mysql}</span>
                       <div className="saved-item-main">
                         <div className="saved-item-name">{c.name}</div>
                         <div className="saved-item-detail">{c.user}@{c.host}:{c.port}/{c.database}</div>
@@ -1010,6 +1025,7 @@ export default function App() {
             setMDb={setMDb}
             setMSave={setMSave}
             setMResult={setMResult}
+            setMType={setMType}
             execQuery={execQuery}
             cancelQuery={cancelQuery}
             running={running}
@@ -1075,6 +1091,7 @@ export default function App() {
         onDump={onDump}
         openRoutine={openRoutine}
         openTrigger={openTrigger}
+        instances={instances}
       />
 
       {tabCtxMenu && (
@@ -1094,6 +1111,7 @@ export default function App() {
         onClose={() => setShowModal(false)}
         mEditId={mEditId}
         mName={mName} setMName={setMName}
+        mType={mType} setMType={setMType}
         mHost={mHost} setMHost={setMHost}
         mPort={mPort} setMPort={setMPort}
         mUser={mUser} setMUser={setMUser}

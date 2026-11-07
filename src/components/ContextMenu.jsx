@@ -52,12 +52,23 @@ export default function ContextMenu({
   onDump,
   openRoutine,
   openTrigger,
+  instances,
 }) {
   const [dumpSubmenu, setDumpSubmenu] = useState(false);
 
   if (!ctxMenu) return null;
 
   const closeAll = () => { setCtxMenu(null); setDumpSubmenu(false); };
+
+  // Helper to get correct identifier quoting based on database type
+  const getQuoting = (instId) => {
+    const inst = instances?.find(i => i.id === instId);
+    const isPG = inst?.config?.type === 'pg';
+    return {
+      quoteId: isPG ? (id) => `"${id}"` : (id) => `\`${id}\``,
+      isPG,
+    };
+  };
 
   const DumpItem = ({ label, mode }) => (
     <div className="context-menu-subitem" onClick={() => { onDump?.(ctxMenu.instId, ctxMenu.dbName, ctxMenu.tName || null, mode); closeAll(); }}>
@@ -104,7 +115,9 @@ export default function ContextMenu({
         <div className="context-menu-divider" />
         <div className="context-menu-item" onClick={() => {
           const tid = `q:${Date.now()}`;
-          setOpenTabs(p => [...p, { id: tid, type: 'query', title: ctxMenu.tName, instId: ctxMenu.instId, db: ctxMenu.dbName, sql: `SELECT * FROM \`${ctxMenu.dbName}\`.\`${ctxMenu.tName}\` LIMIT 100;`, results: null, fields: [], error: null }]);
+          const { quoteId } = getQuoting(ctxMenu.instId);
+          const tableRef = `${quoteId(ctxMenu.dbName)}.${quoteId(ctxMenu.tName)}`;
+          setOpenTabs(p => [...p, { id: tid, type: 'query', title: ctxMenu.tName, instId: ctxMenu.instId, db: ctxMenu.dbName, sql: `SELECT * FROM ${tableRef} LIMIT 100;`, results: null, fields: [], error: null }]);
           setActiveTabId(tid); closeAll();
         }}>{I.sql} SELECT * FROM</div>
       </MenuFrame>
@@ -142,18 +155,22 @@ export default function ContextMenu({
         <div className="context-menu-divider" />
         <div className="context-menu-item" onClick={() => {
           const tid = `q:${Date.now()}`;
-          setOpenTabs(p => [...p, { id: tid, type: 'query', title: `SEL-${ctxMenu.tName}`, instId: ctxMenu.instId, db: ctxMenu.dbName, sql: `SELECT * FROM \`${ctxMenu.dbName}\`.\`${ctxMenu.tName}\` LIMIT 100;`, results: null, fields: [], error: null }]);
+          const { quoteId } = getQuoting(ctxMenu.instId);
+          const tableRef = `${quoteId(ctxMenu.dbName)}.${quoteId(ctxMenu.tName)}`;
+          setOpenTabs(p => [...p, { id: tid, type: 'query', title: `SEL-${ctxMenu.tName}`, instId: ctxMenu.instId, db: ctxMenu.dbName, sql: `SELECT * FROM ${tableRef} LIMIT 100;`, results: null, fields: [], error: null }]);
           setActiveTabId(tid); closeAll();
         }}>{I.sql} SELECT * FROM</div>
         <div className="context-menu-item" onClick={async () => {
           let cols = [];
           try { cols = await loadCols(ctxMenu.instId, ctxMenu.dbName, ctxMenu.tName) || []; } catch (_) {}
+          const { quoteId } = getQuoting(ctxMenu.instId);
+          const tableRef = `${quoteId(ctxMenu.dbName)}.${quoteId(ctxMenu.tName)}`;
           const colNames = cols.map(c => c.COLUMN_NAME);
-          const names = colNames.length ? colNames.map(c => `\`${c}\``).join(', ') : '';
+          const names = colNames.length ? colNames.map(c => quoteId(c)).join(', ') : '';
           const phs = colNames.length ? colNames.map(() => '').join(', ') : '';
           const sql = colNames.length
-            ? `INSERT INTO \`${ctxMenu.dbName}\`.\`${ctxMenu.tName}\` (\n  ${names}\n) VALUES (\n  ${phs}\n);`
-            : `INSERT INTO \`${ctxMenu.dbName}\`.\`${ctxMenu.tName}\` (\n  \n) VALUES (\n  \n);`;
+            ? `INSERT INTO ${tableRef} (\n  ${names}\n) VALUES (\n  ${phs}\n);`
+            : `INSERT INTO ${tableRef} (\n  \n) VALUES (\n  \n);`;
           const tid = `q:${Date.now()}`;
           setOpenTabs(p => [...p, { id: tid, type: 'query', title: `INS-${ctxMenu.tName}`, instId: ctxMenu.instId, db: ctxMenu.dbName, sql, results: null, fields: [], error: null }]);
           setActiveTabId(tid); closeAll();
@@ -161,13 +178,15 @@ export default function ContextMenu({
         <div className="context-menu-item" onClick={async () => {
           let cols = [];
           try { cols = await loadCols(ctxMenu.instId, ctxMenu.dbName, ctxMenu.tName) || []; } catch (_) {}
+          const { quoteId } = getQuoting(ctxMenu.instId);
+          const tableRef = `${quoteId(ctxMenu.dbName)}.${quoteId(ctxMenu.tName)}`;
           const colNames = cols.map(c => c.COLUMN_NAME);
           const pkNames = cols.filter(c => c.COLUMN_KEY === 'PRI').map(c => c.COLUMN_NAME);
-          const sets = colNames.length ? colNames.map(c => `\`${c}\` = ''`).join(',\n  ') : '';
-          const where = pkNames.length ? pkNames.map(c => `\`${c}\` = ''`).join(' AND ') : '-- where';
+          const sets = colNames.length ? colNames.map(c => `${quoteId(c)} = ''`).join(',\n  ') : '';
+          const where = pkNames.length ? pkNames.map(c => `${quoteId(c)} = ''`).join(' AND ') : '-- where';
           const sql = colNames.length
-            ? `UPDATE \`${ctxMenu.dbName}\`.\`${ctxMenu.tName}\`\nSET\n  ${sets}\nWHERE ${where};`
-            : `UPDATE \`${ctxMenu.dbName}\`.\`${ctxMenu.tName}\`\nSET \nWHERE ;`;
+            ? `UPDATE ${tableRef}\nSET\n  ${sets}\nWHERE ${where};`
+            : `UPDATE ${tableRef}\nSET \nWHERE ;`;
           const tid = `q:${Date.now()}`;
           setOpenTabs(p => [...p, { id: tid, type: 'query', title: `UPD-${ctxMenu.tName}`, instId: ctxMenu.instId, db: ctxMenu.dbName, sql, results: null, fields: [], error: null }]);
           setActiveTabId(tid); closeAll();

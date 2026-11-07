@@ -1,7 +1,10 @@
-const mysql = require('mysql2/promise');
+const { getDriver } = require('./lib/drivers');
+const { getDialect } = require('./lib/dialects');
 
 const pools = new Map();
-const txConnections = new Map(); // sessionId → connection (each tab gets its own MySQL session)
+const instanceDrivers = new Map(); // instanceId → driver module
+const instanceDialects = new Map(); // instanceId → dialect module
+const txConnections = new Map(); // sessionId → connection (each tab gets its own session)
 const sessionInstances = new Map(); // sessionId → instanceId (for disconnect cleanup + cancelQuery)
 const poolConfigs = new Map();
 const runningQueries = new Map(); // sessionId → { connection, threadId }
@@ -28,39 +31,39 @@ function resolveInstanceId(instanceId) {
   return instanceId || DEFAULT_INSTANCE;
 }
 
+function getDriverForInstance(instanceId) {
+  instanceId = resolveInstanceId(instanceId);
+  return instanceDrivers.get(instanceId) || getDriver('mysql');
+}
+
+function getDialectForInstance(instanceId) {
+  instanceId = resolveInstanceId(instanceId);
+  return instanceDialects.get(instanceId) || getDialect('mysql');
+}
+
 async function connect(instanceId, config) {
   instanceId = resolveInstanceId(instanceId);
-  if (pools.has(instanceId)) {
-    try { await pools.get(instanceId).end(); } catch (_) {}
-  }
-  const pool = mysql.createPool({
-    host: config.host,
-    port: config.port || 3306,
-    user: config.user,
-    password: config.password,
-    database: config.database || undefined,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 50,
-    acquireTimeout: 15000,
-    connectTimeout: 10000,
-    idleTimeout: 120000,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 30000,
-    dateStrings: true,
-  });
+  const type = config.type || 'mysql';
+  const drv = getDriver(type);
+  const dlt = getDialect(type);
 
-  // 立即验证连接是否可达（懒连接会导致 connect 成功但后续全部超时）
+  if (pools.has(instanceId)) {
+    await drv.endPool(pools.get(instanceId));
+  }
+  const pool = drv.createPool(config);
+
   try {
-    const conn = await pool.getConnection();
-    await conn.ping();
-    conn.release();
+    const conn = await drv.getConnection(pool);
+    await drv.ping(conn);
+    drv.releaseConnection(conn);
   } catch (e) {
-    try { await pool.end(); } catch (_) {}
+    await drv.endPool(pool);
     throw new Error(`Connection failed: ${e.message}`);
   }
 
   pools.set(instanceId, pool);
+  instanceDrivers.set(instanceId, drv);
+  instanceDialects.set(instanceId, dlt);
   poolConfigs.set(instanceId, config);
   return pool;
 }
@@ -68,19 +71,21 @@ async function connect(instanceId, config) {
 async function disconnect(instanceId) {
   instanceId = resolveInstanceId(instanceId);
   if (!pools.has(instanceId)) return;
-  // Rollback and release only transaction connections for THIS instance
+  const drv = getDriverForInstance(instanceId);
   for (const [sessionId, conn] of txConnections.entries()) {
     if (sessionInstances.get(sessionId) !== instanceId) continue;
     try {
       await conn.rollback();
-      await conn.release();
+      drv.releaseConnection(conn);
     } catch (_) {}
     txConnections.delete(sessionId);
     sessionInstances.delete(sessionId);
     clearTxTimer(sessionId);
   }
-  try { await pools.get(instanceId).end(); } catch (_) {}
+  await drv.endPool(pools.get(instanceId));
   pools.delete(instanceId);
+  instanceDrivers.delete(instanceId);
+instanceDialects.delete(instanceId);
   poolConfigs.delete(instanceId);
 }
 
@@ -104,13 +109,10 @@ function getPoolStatus(instanceId) {
   instanceId = resolveInstanceId(instanceId);
   const pool = pools.get(instanceId);
   if (!pool) return null;
-  const internal = pool.pool || {};
+  const drv = getDriverForInstance(instanceId);
   return {
     instanceId,
-    total: internal._allConnections?.length || 0,
-    free: internal._freeConnections?.length || 0,
-    pending: internal._connectionQueue?.length || 0,
-    max: internal.config?.connectionLimit || 10,
+    ...drv.getPoolStatus(pool),
     config: poolConfigs.get(instanceId) || {},
   };
 }
@@ -118,8 +120,9 @@ function getPoolStatus(instanceId) {
 async function beginTransaction(sessionId, instanceId) {
   instanceId = resolveInstanceId(instanceId);
   const pool = getPool(instanceId);
+  const drv = getDriverForInstance(instanceId);
   if (txConnections.has(sessionId)) throw new Error('Transaction already in progress for this tab');
-  const connection = await pool.getConnection();
+  const connection = await drv.getConnection(pool);
   await connection.beginTransaction();
   txConnections.set(sessionId, connection);
   sessionInstances.set(sessionId, instanceId);
@@ -137,9 +140,11 @@ async function beginTransaction(sessionId, instanceId) {
 async function commit(sessionId) {
   const connection = txConnections.get(sessionId);
   if (!connection) throw new Error('No active transaction');
+  const instanceId = sessionInstances.get(sessionId);
+  const drv = getDriverForInstance(instanceId);
   clearTxTimer(sessionId);
   await connection.commit();
-  await connection.release();
+  drv.releaseConnection(connection);
   txConnections.delete(sessionId);
   sessionInstances.delete(sessionId);
   return true;
@@ -148,37 +153,24 @@ async function commit(sessionId) {
 async function rollback(sessionId) {
   const connection = txConnections.get(sessionId);
   if (!connection) throw new Error('No active transaction');
+  const instanceId = sessionInstances.get(sessionId);
+  const drv = getDriverForInstance(instanceId);
   clearTxTimer(sessionId);
   await connection.rollback();
-  await connection.release();
+  drv.releaseConnection(connection);
   txConnections.delete(sessionId);
   sessionInstances.delete(sessionId);
   return true;
 }
 
-const QUERY_TIMEOUT_MS = 60000; // 60-second query timeout
-
-// mysql2 parses JSON columns into JS objects; serialize them back to JSON text
-// so downstream display/export layers don't render [object Object].
-// Buffers (BLOB) and ResultSetHeader (DML, not an Array) are left untouched.
-function normalizeRows(rows) {
-  if (!Array.isArray(rows)) return rows;
-  return rows.map(row => {
-    const out = {};
-    for (const k of Object.keys(row)) {
-      const v = row[k];
-      out[k] = (typeof v === 'object' && v !== null && !Buffer.isBuffer(v)) ? JSON.stringify(v) : v;
-    }
-    return out;
-  });
-}
-
 async function autoRollbackTransaction(sessionId, reason) {
   const connection = txConnections.get(sessionId);
   if (!connection) return;
+  const instanceId = sessionInstances.get(sessionId);
+  const drv = getDriverForInstance(instanceId);
   try {
     await connection.rollback();
-    await connection.release();
+    drv.releaseConnection(connection);
   } catch (_) {}
   txConnections.delete(sessionId);
   sessionInstances.delete(sessionId);
@@ -208,55 +200,49 @@ function getTransactionStatus(sessionId) {
 async function execute(instanceId, sql, params, sessionId) {
   instanceId = resolveInstanceId(instanceId);
   if (!sql) throw new Error('SQL is required');
+  const drv = getDriverForInstance(instanceId);
+  const dlt = getDialectForInstance(instanceId);
 
-  const doExec = async (conn) => {
+  // Convert ? placeholders to dialect-specific format (e.g., $1, $2 for PG)
+  const convertedSql = params && params.length ? dlt.convertPlaceholders(sql) : sql;
+
+  const doExec = async (conn, pool) => {
     try {
-      const [rows, fields] = await conn.execute({ sql, values: params, timeout: QUERY_TIMEOUT_MS });
-      return { rows: normalizeRows(rows), fields };
+      return await drv.execute(conn, convertedSql, params, pool);
     } catch (e) {
-      // Fallback to query() for commands not supported by prepared statement protocol
-      // (e.g., USE, SET, FLUSH, CREATE USER, etc.)
-      if (e.message && e.message.includes('prepared statement protocol')) {
-        const [rows, fields] = await conn.query({ sql, values: params, timeout: QUERY_TIMEOUT_MS });
-        return { rows: normalizeRows(rows), fields };
+      if (drv.isPreparedStatementError(e)) {
+        return await drv.query(conn, convertedSql, params, pool);
       }
       throw e;
     }
   };
 
-  // If this tab has an active transaction, use its dedicated connection
   if (sessionId && txConnections.has(sessionId)) {
-    return await doExec(txConnections.get(sessionId));
+    return await doExec(txConnections.get(sessionId), null);
   }
 
-  // Get a dedicated connection from pool so we can cancel it by threadId
   const pool = getPool(instanceId);
-  const conn = await pool.getConnection();
+  const conn = await drv.getConnection(pool);
   if (sessionId) {
-    runningQueries.set(sessionId, { connection: conn, threadId: conn.threadId });
+    runningQueries.set(sessionId, { connection: conn, threadId: drv.getThreadId(conn) });
   }
   try {
-    return await doExec(conn);
+    return await doExec(conn, pool);
   } finally {
     if (sessionId) runningQueries.delete(sessionId);
-    conn.release();
+    drv.releaseConnection(conn);
   }
 }
 
 async function cancelQuery(sessionId) {
   const entry = runningQueries.get(sessionId);
   if (!entry) return false;
-  // Use the same instance's pool to kill the query
   const instId = sessionInstances.get(sessionId);
   const pool = instId ? pools.get(instId) : pools.values().next().value;
   if (!pool) return false;
+  const drv = instId ? getDriverForInstance(instId) : getDriverForInstance(DEFAULT_INSTANCE);
   try {
-    const killer = await pool.getConnection();
-    try {
-      await killer.query(`KILL QUERY ${entry.threadId}`);
-    } finally {
-      killer.release();
-    }
+    await drv.killQuery(pool, entry.threadId);
     return true;
   } catch (_) {
     return false;
@@ -264,20 +250,23 @@ async function cancelQuery(sessionId) {
 }
 
 async function shutdownAll() {
-  // Rollback all active transactions first
   for (const [sessionId, conn] of txConnections.entries()) {
+    const instanceId = sessionInstances.get(sessionId);
+    const drv = getDriverForInstance(instanceId);
     try {
       await conn.rollback();
-      await conn.release();
+      drv.releaseConnection(conn);
     } catch (_) {}
     txConnections.delete(sessionId);
     sessionInstances.delete(sessionId);
     clearTxTimer(sessionId);
   }
-  // Close all connection pools
   for (const [id, pool] of pools.entries()) {
-    try { await pool.end(); } catch (_) {}
+    const drv = getDriverForInstance(id);
+    await drv.endPool(pool);
     pools.delete(id);
+    instanceDrivers.delete(id);
+    instanceDialects.delete(id);
     poolConfigs.delete(id);
   }
 }
@@ -293,6 +282,7 @@ module.exports = {
   getConfig,
   getPoolStatus,
   getTransactionStatus,
+  getDialectForInstance,
   onTxWarning,
   shutdownAll,
 };

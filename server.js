@@ -6,6 +6,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 const XLSX = require('xlsx');
 const db = require('./db');
+const { getDialect } = require('./lib/dialects');
+
+function dialectFor(instanceId) {
+  return db.getDialectForInstance(instanceId);
+}
 
 // Determine data directory: Electron uses userData, standalone uses __dirname
 function getDataDir() {
@@ -148,19 +153,22 @@ app.get('/api/connections', (req, res) => {
 
 app.post('/api/connections', (req, res) => {
   try {
-    const { id, name, host, port, user, password, database } = req.body;
+    const { id, name, host, port, user, password, database, type } = req.body;
     if (!name || !host || !user || !database) {
       return res.status(400).json({ ok: false, error: 'name, host, user, database required' });
     }
+    const dbType = type || 'mysql';
+    const dbDialect = getDialect(dbType);
     const connections = loadSavedConnections();
     const connection = {
       id: id || `${name}-${Date.now()}`,
       name,
       host,
-      port: port || 3306,
+      port: port || dbDialect.getCapabilities().defaultPort,
       user,
       password,
       database,
+      type: dbType,
     };
     const index = connections.findIndex((item) => item.id === connection.id || item.name === name);
     if (index >= 0) {
@@ -178,7 +186,7 @@ app.post('/api/connections', (req, res) => {
 app.put('/api/connections/:id', (req, res) => {
   try {
     const id = req.params.id;
-    const { name, host, port, user, password, database } = req.body;
+    const { name, host, port, user, password, database, type } = req.body;
     if (!name || !host || !user) {
       return res.status(400).json({ ok: false, error: 'name, host, user required' });
     }
@@ -187,14 +195,17 @@ app.put('/api/connections/:id', (req, res) => {
     if (index === -1) {
       return res.status(404).json({ ok: false, error: 'Connection not found' });
     }
+    const dbType = type || connections[index].type || 'mysql';
+    const dbDialect = getDialect(dbType);
     connections[index] = {
       ...connections[index],
       name,
       host,
-      port: port || 3306,
+      port: port || dbDialect.getCapabilities().defaultPort,
       user,
       password: password || '',
       database: database || '',
+      type: dbType,
     };
     saveConnections(connections);
     res.json({ ok: true, connection: connections[index] });
@@ -218,16 +229,19 @@ app.delete('/api/connections/:id', (req, res) => {
 app.post('/api/connect', async (req, res) => {
   try {
     const { instanceId = `default`, save = false, name, ...cfg } = req.body;
+    const dbType = cfg.type || 'mysql';
+    const dbDialect = getDialect(dbType);
     await db.connect(instanceId, cfg);
     if (save) {
       const connection = {
         id: instanceId,
         name: name || cfg.database || instanceId,
         host: cfg.host,
-        port: cfg.port || 3306,
+        port: cfg.port || dbDialect.getCapabilities().defaultPort,
         user: cfg.user,
         password: cfg.password,
         database: cfg.database,
+        type: dbType,
       };
       const connections = loadSavedConnections();
       const index = connections.findIndex((item) => item.id === connection.id || item.name === connection.name);
@@ -247,17 +261,20 @@ app.post('/api/connect', async (req, res) => {
 app.post('/api/test-connection', async (req, res) => {
   try {
     const cfg = req.body;
-    const mysql = require('mysql2/promise');
-    const conn = await mysql.createConnection({
+    const dbType = cfg.type || 'mysql';
+    const { getDriver } = require('./lib/drivers');
+    const drv = getDriver(dbType);
+    const pool = drv.createPool({
       host: cfg.host,
-      port: cfg.port || 3306,
+      port: cfg.port || drv.getCapabilities().defaultPort,
       user: cfg.user,
       password: cfg.password,
       database: cfg.database || undefined,
-      connectTimeout: 5000,
     });
-    await conn.ping();
-    await conn.end();
+    const conn = await drv.getConnection(pool);
+    await drv.ping(conn);
+    drv.releaseConnection(conn);
+    await drv.endPool(pool);
     res.json({ ok: true, message: 'Connection successful' });
   } catch (err) {
     res.json({ ok: false, error: err.message });
@@ -267,8 +284,10 @@ app.post('/api/test-connection', async (req, res) => {
 app.get('/api/databases', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
-    const sql = `SELECT SCHEMA_NAME AS name FROM information_schema.schemata WHERE SCHEMA_NAME NOT IN ('information_schema','mysql','performance_schema','sys') ORDER BY SCHEMA_NAME`;
-    const result = await db.execute(instanceId, sql);
+    const d = dialectFor(instanceId);
+    // For PG, show schemas instead of databases in the sidebar
+    const query = d.listSchemas ? d.listSchemas() : d.listDatabases();
+    const result = await db.execute(instanceId, query.sql, query.params);
     res.json({ ok: true, databases: result.rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -280,7 +299,8 @@ app.get('/api/tables', async (req, res) => {
     const instanceId = resolveInstanceId(req);
     const schema = resolveDatabase(req, instanceId);
     if (!schema) return res.status(400).json({ error: 'database required' });
-    const sql = `SELECT TABLE_NAME, TABLE_SCHEMA, TABLE_TYPE, TABLE_COMMENT, TABLE_ROWS, AVG_ROW_LENGTH, DATA_LENGTH, CREATE_TIME, UPDATE_TIME FROM information_schema.tables WHERE table_schema = ? ORDER BY TABLE_NAME`;
+    const d = dialectFor(instanceId);
+    const { sql } = d.listTables();
     const result = await db.execute(instanceId, sql, [schema]);
     res.json({ ok: true, tables: result.rows });
   } catch (err) {
@@ -294,7 +314,8 @@ app.get('/api/routines', async (req, res) => {
     const instanceId = resolveInstanceId(req);
     const schema = resolveDatabase(req, instanceId);
     if (!schema) return res.status(400).json({ error: 'database required' });
-    const sql = `SELECT ROUTINE_NAME, ROUTINE_TYPE, DTD_IDENTIFIER, CREATED, LAST_ALTERED FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ? ORDER BY ROUTINE_TYPE, ROUTINE_NAME`;
+    const d = dialectFor(instanceId);
+    const { sql } = d.listRoutines();
     const result = await db.execute(instanceId, sql, [schema]);
     res.json({ ok: true, routines: result.rows });
   } catch (err) {
@@ -308,7 +329,8 @@ app.get('/api/triggers', async (req, res) => {
     const instanceId = resolveInstanceId(req);
     const schema = resolveDatabase(req, instanceId);
     if (!schema) return res.status(400).json({ error: 'database required' });
-    const sql = `SELECT TRIGGER_NAME, EVENT_MANIPULATION, EVENT_OBJECT_TABLE, ACTION_TIMING, CREATED FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? ORDER BY TRIGGER_NAME`;
+    const d = dialectFor(instanceId);
+    const { sql } = d.listTriggers();
     const result = await db.execute(instanceId, sql, [schema]);
     res.json({ ok: true, triggers: result.rows });
   } catch (err) {
@@ -321,14 +343,12 @@ app.get('/api/routine-ddl', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
     const schema = resolveDatabase(req, instanceId);
-    const { name, type } = req.query; // type: 'PROCEDURE' or 'FUNCTION'
+    const { name, type } = req.query;
     if (!name || !schema) return res.status(400).json({ error: 'name and database required' });
-    const sql = type === 'FUNCTION'
-      ? `SHOW CREATE FUNCTION ${escapeId(schema)}.${escapeId(name)}`
-      : `SHOW CREATE PROCEDURE ${escapeId(schema)}.${escapeId(name)}`;
-    const result = await db.execute(instanceId, sql);
-    const key = type === 'FUNCTION' ? 'Create Function' : 'Create Procedure';
-    const ddl = result.rows?.[0]?.[key] || '';
+    const d = dialectFor(instanceId);
+    const { sql, params, extract } = d.getRoutineDDL(schema, name, type);
+    const result = await db.execute(instanceId, sql, params || []);
+    const ddl = extract(result.rows);
     res.json({ ok: true, ddl, type: type || 'PROCEDURE' });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -341,9 +361,10 @@ app.get('/api/trigger-ddl', async (req, res) => {
     const schema = resolveDatabase(req, instanceId);
     const { name } = req.query;
     if (!name || !schema) return res.status(400).json({ error: 'name and database required' });
-    const sql = `SHOW CREATE TRIGGER ${escapeId(schema)}.${escapeId(name)}`;
-    const result = await db.execute(instanceId, sql);
-    const ddl = result.rows?.[0]?.['SQL Original Statement'] || '';
+    const d = dialectFor(instanceId);
+    const { sql, params, extract } = d.getTriggerDDL(schema, name);
+    const result = await db.execute(instanceId, sql, params || []);
+    const ddl = extract(result.rows);
     res.json({ ok: true, ddl });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -356,31 +377,29 @@ app.get('/api/table-ddl', async (req, res) => {
     const schema = resolveDatabase(req, instanceId);
     const table = req.query.table;
     if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
-    const sql = `SHOW CREATE TABLE ${escapeId(schema)}.${escapeId(table)}`;
-    const result = await db.execute(instanceId, sql);
-    const ddl = result.rows?.[0]?.['Create Table'] || result.rows?.[0]?.['Create View'] || '';
+    const d = dialectFor(instanceId);
+    const { sql, params, extract } = d.getTableDDL(schema, table);
+    const result = await db.execute(instanceId, sql, params || []);
+    const ddl = extract(result.rows);
     res.json({ ok: true, ddl });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Estimate row count for a table (using information_schema, fast approximate)
 app.get('/api/table-estimate', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
     const schema = resolveDatabase(req, instanceId);
     const table = req.query.table;
     if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
-    const result = await db.execute(instanceId,
-      `SELECT TABLE_ROWS, AVG_ROW_LENGTH, DATA_LENGTH FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
-      [schema, table]
-    );
+    const d = dialectFor(instanceId);
+    const { sql } = d.estimateTableRowCount();
+    const result = await db.execute(instanceId, sql, [schema, table]);
     const row = result.rows?.[0] || {};
     const rowCount = row.TABLE_ROWS ?? 0;
     const avgRowLen = row.AVG_ROW_LENGTH ?? 100;
     const dataLen = row.DATA_LENGTH ?? 0;
-    // Heuristic: estimate ~1.5x data length for SQL dump (INSERT statements add overhead)
     const estimatedDumpSize = dataLen > 0 ? Math.round(dataLen * 1.5) : rowCount * avgRowLen * 1.5;
     res.json({ ok: true, rowCount, dataLength: dataLen, estimatedDumpSize });
   } catch (err) {
@@ -394,31 +413,23 @@ app.get('/api/table-indexes', async (req, res) => {
     const schema = resolveDatabase(req, instanceId);
     const table = req.query.table;
     if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
-    const sql = `SHOW INDEX FROM ${escapeId(schema)}.${escapeId(table)}`;
-    const result = await db.execute(instanceId, sql);
+    const d = dialectFor(instanceId);
+    const { sql, params } = d.listTableIndexes(schema, table);
+    const result = await db.execute(instanceId, sql, params);
     res.json({ ok: true, indexes: result.rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Foreign keys for a table
 app.get('/api/table-fks', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
     const schema = resolveDatabase(req, instanceId);
     const table = req.query.table;
     if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
-    const sql = `
-      SELECT
-        CONSTRAINT_NAME,
-        COLUMN_NAME,
-        REFERENCED_TABLE_NAME,
-        REFERENCED_COLUMN_NAME
-      FROM information_schema.KEY_COLUMN_USAGE
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
-      ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
-    `;
+    const d = dialectFor(instanceId);
+    const { sql } = d.listForeignKeys();
     const result = await db.execute(instanceId, sql, [schema, table]);
     res.json({ ok: true, foreignKeys: result.rows });
   } catch (err) {
@@ -432,7 +443,8 @@ app.get('/api/columns', async (req, res) => {
     const table = req.query.table;
     const schema = resolveDatabase(req, instanceId);
     if (!table || !schema) return res.status(400).json({ error: 'table and database required' });
-    const sql = `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT, EXTRA, COLUMN_COMMENT, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, ORDINAL_POSITION FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ORDINAL_POSITION`;
+    const d = dialectFor(instanceId);
+    const { sql } = d.listColumns();
     const result = await db.execute(instanceId, sql, [schema, table]);
     res.json({ ok: true, columns: result.rows });
   } catch (err) {
@@ -453,38 +465,15 @@ app.post('/api/query', async (req, res) => {
   }
 });
 
-// Smart SQL split (respects strings, comments, backticks)
-function splitSQL(sql) {
-  const stmts = [];
-  let cur = '', i = 0;
-  while (i < sql.length) {
-    const ch = sql[i];
-    if (ch === "'" || ch === '"') { const q = ch; cur += q; i++; while (i < sql.length && sql[i] !== q) { if (sql[i] === '\\') { cur += sql[i]; i++; } cur += sql[i] || ''; i++; } if (i < sql.length) { cur += q; i++; } continue; }
-    if (ch === '`') { cur += '`'; i++; while (i < sql.length && sql[i] !== '`') { cur += sql[i]; i++; } if (i < sql.length) { cur += '`'; i++; } continue; }
-    if (ch === '-' && sql[i+1] === '-') { while (i < sql.length && sql[i] !== '\n') { cur += sql[i]; i++; } continue; }
-    if (ch === '/' && sql[i+1] === '*') { cur += '/*'; i += 2; while (i < sql.length && !(sql[i] === '*' && sql[i+1] === '/')) { cur += sql[i]; i++; } if (i < sql.length) { cur += '*/'; i += 2; } continue; }
-    if (ch === ';') {
-      const s = cur.trim();
-      if (s) stmts.push(s);
-      cur = ''; i++;
-      continue;
-    }
-    cur += ch; i++;
-  }
-  const s = cur.trim();
-  if (s) stmts.push(s);
-  return stmts;
-}
-
 app.post('/api/query-batch', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
     const sessionId = req.body.sessionId || '';
     const database = req.body.database || '';
-    const statements = splitSQL(req.body.sql || '');
+    const d = dialectFor(instanceId);
+    const statements = d.splitSQL(req.body.sql || '');
     if (!statements.length) return res.status(400).json({ error: 'no SQL found' });
-    // Auto-select database context if specified by frontend
-    if (database) statements.unshift(`USE ${escapeId(database)}`);
+    if (database) statements.unshift(d.buildUseStatement(database));
     const results = [];
     for (const sql of statements) {
       try {
@@ -498,8 +487,8 @@ app.post('/api/query-batch', async (req, res) => {
           sql,
           rows: isSelect ? result.rows : [],
           fields: result.fields || [],
-          affectedRows: isSelect ? undefined : (result.rows?.affectedRows ?? 0),
-          changedRows: isSelect ? undefined : (result.rows?.changedRows ?? 0),
+          affectedRows: isSelect ? undefined : (result.affectedRows ?? 0),
+          changedRows: isSelect ? undefined : (result.changedRows ?? 0),
           elapsed,
           isSelect,
         });
@@ -581,29 +570,25 @@ app.get('/api/transaction-status', (req, res) => {
   }
 });
 
-// Safe identifier escaping for MySQL backtick identifiers
-function escapeId(id) {
-  return '`' + String(id).replace(/`/g, '``') + '`';
-}
-
 app.post('/api/edit', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
+    const d = dialectFor(instanceId);
     const { database, table, pk, updates } = req.body;
     if (!table || !pk || !updates) return res.status(400).json({ error: 'table, pk, updates required' });
     const whereKeys = Object.keys(pk);
     if (!whereKeys.length) return res.status(400).json({ error: 'primary key required' });
-    const whereClauses = whereKeys.map((k) => `${escapeId(k)} = ?`).join(' AND ');
+    const whereClauses = whereKeys.map((k) => `${d.escapeId(k)} = ?`).join(' AND ');
     const whereValues = whereKeys.map((k) => pk[k]);
     const setKeys = Object.keys(updates);
     if (!setKeys.length) return res.status(400).json({ error: 'no columns to update' });
-    const setClauses = setKeys.map((k) => `${escapeId(k)} = ?`).join(', ');
+    const setClauses = setKeys.map((k) => `${d.escapeId(k)} = ?`).join(', ');
     const setValues = setKeys.map((k) => updates[k]);
-    const fullTable = database ? `${escapeId(database)}.${escapeId(table)}` : escapeId(table);
+    const fullTable = database ? `${d.escapeId(database)}.${d.escapeId(table)}` : d.escapeId(table);
     const sql = `UPDATE ${fullTable} SET ${setClauses} WHERE ${whereClauses}`;
     const params = [...setValues, ...whereValues];
     const result = await db.execute(instanceId, sql, params);
-    res.json({ ok: true, affectedRows: result.rows.affectedRows || 0 });
+    res.json({ ok: true, affectedRows: result.affectedRows || 0 });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -613,17 +598,18 @@ app.post('/api/edit', async (req, res) => {
 app.post('/api/insert', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
+    const d = dialectFor(instanceId);
     const { database, table, row } = req.body;
     if (!table || !row) return res.status(400).json({ error: 'table, row required' });
     const keys = Object.keys(row);
     if (!keys.length) return res.status(400).json({ error: 'row has no columns' });
-    const cols = keys.map(k => escapeId(k)).join(', ');
+    const cols = keys.map(k => d.escapeId(k)).join(', ');
     const pholders = keys.map(() => '?').join(', ');
     const values = keys.map(k => row[k]);
-    const fullTable = database ? `${escapeId(database)}.${escapeId(table)}` : escapeId(table);
+    const fullTable = database ? `${d.escapeId(database)}.${d.escapeId(table)}` : d.escapeId(table);
     const sql = `INSERT INTO ${fullTable} (${cols}) VALUES (${pholders})`;
     const result = await db.execute(instanceId, sql, values);
-    res.json({ ok: true, affectedRows: result.rows.affectedRows || 0, insertId: result.rows.insertId || null });
+    res.json({ ok: true, affectedRows: result.affectedRows || 0, insertId: result.insertId || null });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -633,15 +619,16 @@ app.post('/api/insert', async (req, res) => {
 app.post('/api/delete', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
+    const d = dialectFor(instanceId);
     const { database, table, pk } = req.body;
     if (!table || !pk || !Object.keys(pk).length) return res.status(400).json({ error: 'table, pk required' });
     const whereKeys = Object.keys(pk);
-    const whereClauses = whereKeys.map((k) => `${escapeId(k)} = ?`).join(' AND ');
+    const whereClauses = whereKeys.map((k) => `${d.escapeId(k)} = ?`).join(' AND ');
     const whereValues = whereKeys.map((k) => pk[k]);
-    const fullTable = database ? `${escapeId(database)}.${escapeId(table)}` : escapeId(table);
+    const fullTable = database ? `${d.escapeId(database)}.${d.escapeId(table)}` : d.escapeId(table);
     const sql = `DELETE FROM ${fullTable} WHERE ${whereClauses}`;
     const result = await db.execute(instanceId, sql, whereValues);
-    res.json({ ok: true, affectedRows: result.rows.affectedRows || 0 });
+    res.json({ ok: true, affectedRows: result.affectedRows || 0 });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -651,19 +638,18 @@ app.get('/api/autocomplete', async (req, res) => {
   try {
     const instanceId = resolveInstanceId(req);
     const schema = req.query.database || resolveDatabase(req, instanceId);
-    const keywords = [
-      'SELECT','INSERT','UPDATE','DELETE','FROM','WHERE','JOIN','LEFT','RIGHT','INNER','OUTER','CROSS','ON','AND','OR','NOT','IN','EXISTS','BETWEEN','LIKE','IS','NULL','AS','GROUP BY','ORDER BY','HAVING','LIMIT','OFFSET','UNION','ALL','DISTINCT','CASE','WHEN','THEN','ELSE','END','CREATE','ALTER','DROP','TRUNCATE','TABLE','INDEX','VIEW','PROCEDURE','FUNCTION','TRIGGER','EXPLAIN','DESC','SHOW','USE','SET','BEGIN','COMMIT','ROLLBACK','PRIMARY','KEY','FOREIGN','REFERENCES','DEFAULT','AUTO_INCREMENT','UNIQUE','CHECK','CASCADE'
-    ];
-    const functions = [
-      'COUNT','SUM','AVG','MAX','MIN','GROUP_CONCAT','COALESCE','IFNULL','NULLIF','IF','CAST','CONVERT','DATE_FORMAT','NOW','CURDATE','CURTIME','UNIX_TIMESTAMP','FROM_UNIXTIME','DATEDIFF','TIMESTAMPDIFF','CONCAT','SUBSTRING','REPLACE','TRIM','UPPER','LOWER','LENGTH','ROUND','FLOOR','CEIL','ABS','MOD','RAND','UUID','MD5','SHA1','JSON_EXTRACT','JSON_UNQUOTE'
-    ];
+    const d = dialectFor(instanceId);
+    const keywords = d.getKeywords();
+    const functions = d.getFunctions();
     const tables = [];
     const databases = [];
     if (schema) {
-      const t = await db.execute(instanceId, 'SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.tables WHERE table_schema = ?', [schema]);
+      const { sql: tSql } = d.listAutocompleteTables();
+      const t = await db.execute(instanceId, tSql, [schema]);
       for (const r of t.rows) tables.push({ name: r.TABLE_NAME, type: r.TABLE_TYPE });
     }
-    const dbs = await db.execute(instanceId, "SELECT SCHEMA_NAME FROM information_schema.schemata WHERE SCHEMA_NAME NOT IN ('information_schema','mysql','performance_schema','sys')");
+    const { sql: dSql } = d.listAutocompleteDatabases();
+    const dbs = await db.execute(instanceId, dSql);
     for (const r of dbs.rows) databases.push(r.SCHEMA_NAME);
     res.json({ ok: true, keywords, functions, tables, databases });
   } catch (err) {
@@ -692,8 +678,10 @@ app.post('/api/import', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'database, table, columns, rows required' });
     }
 
+    const d = dialectFor(instanceId);
+
     // Validate and sanitize identifiers
-    const escapedCols = columns.filter(c => c && c.trim()).map(c => escapeId(c.trim())).join(', ');
+    const escapedCols = columns.filter(c => c && c.trim()).map(c => d.escapeId(c.trim())).join(', ');
     if (!escapedCols) return res.status(400).json({ ok: false, error: 'no valid columns' });
 
     const cleanCols = columns.filter(c => c && c.trim());
@@ -713,10 +701,10 @@ app.post('/api/import', async (req, res) => {
     // Build batch INSERT with parameterized values
     const placeholders = normalizedRows.map(() => `(${cleanCols.map(() => '?').join(', ')})`).join(', ');
     const flatValues = normalizedRows.flat();
-    const sql = `INSERT INTO ${escapeId(database)}.${escapeId(table)} (${escapedCols}) VALUES ${placeholders}`;
+    const sql = `INSERT INTO ${d.escapeId(database)}.${d.escapeId(table)} (${escapedCols}) VALUES ${placeholders}`;
 
     const result = await db.execute(instanceId, sql, flatValues);
-    const inserted = result.rows.affectedRows || normalizedRows.length;
+    const inserted = result.affectedRows || normalizedRows.length;
     res.json({ ok: true, inserted });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -795,10 +783,9 @@ app.post('/api/dump', async (req, res) => {
       await dumpTable(db, instanceId, database, table, output, mode, maxDataRows);
     } else {
       // Full database dump
-      const colsResult = await db.execute(instanceId,
-        `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME`,
-        [database]
-      );
+      const d = dialectFor(instanceId);
+      const { sql: listSql } = d.listDumpTables();
+      const colsResult = await db.execute(instanceId, listSql, [database]);
       const tables = (colsResult.rows || []).map(r => r.TABLE_NAME);
       for (const tbl of tables) {
         await dumpTable(db, instanceId, database, tbl, output, mode, maxDataRows);
@@ -819,6 +806,7 @@ app.post('/api/dump', async (req, res) => {
 });
 
 async function dumpTable(db, instanceId, database, tableName, output, mode = 'all', maxDataRows = 100000) {
+  const d = dialectFor(instanceId);
   output.push(`-- --------------------------------------------------------`);
   output.push(`-- Table: ${database}.${tableName}`);
   output.push(`-- --------------------------------------------------------`);
@@ -829,12 +817,11 @@ async function dumpTable(db, instanceId, database, tableName, output, mode = 'al
   // CREATE TABLE
   if (includeStructure) {
     try {
-      const ddlResult = await db.execute(instanceId,
-        `SHOW CREATE TABLE ${escapeId(database)}.${escapeId(tableName)}`
-      );
-      const ddl = ddlResult.rows?.[0]?.['Create Table'] || '';
+      const ddlQuery = d.getTableDDLForDump(database, tableName);
+      const ddlResult = await db.execute(instanceId, ddlQuery.sql, ddlQuery.params);
+      const ddl = ddlQuery.extract(ddlResult.rows);
       output.push('');
-      output.push(`DROP TABLE IF EXISTS ${escapeId(database)}.${escapeId(tableName)};`);
+      output.push(d.buildDropTable(database, tableName));
       output.push(ddl + ';');
     } catch (e) {
       output.push(`-- Error getting DDL: ${e.message}`);
@@ -843,11 +830,8 @@ async function dumpTable(db, instanceId, database, tableName, output, mode = 'al
 
   if (includeData) {
     try {
-      const dataResult = await db.execute(instanceId,
-        maxDataRows > 0
-          ? `SELECT * FROM ${escapeId(database)}.${escapeId(tableName)} LIMIT ${maxDataRows}`
-          : `SELECT * FROM ${escapeId(database)}.${escapeId(tableName)}`
-      );
+      const selectSql = d.buildDumpSelect(database, tableName, maxDataRows);
+      const dataResult = await db.execute(instanceId, selectSql);
       const rows = dataResult.rows || [];
       const fields = dataResult.fields || [];
 
@@ -865,16 +849,12 @@ async function dumpTable(db, instanceId, database, tableName, output, mode = 'al
       output.push('');
 
       const fieldNames = fields.map(f => f.name);
-      const colList = fieldNames.map(c => escapeId(c)).join(', ');
 
       // Generate INSERT statements in batches of 500 rows
       const BATCH = 500;
       for (let i = 0; i < rows.length; i += BATCH) {
         const batch = rows.slice(i, i + BATCH);
-        const values = batch.map(row =>
-          '(' + fieldNames.map(c => escapeSqlVal(row[c])).join(', ') + ')'
-        ).join(',\n');
-        output.push(`INSERT INTO ${escapeId(database)}.${escapeId(tableName)} (${colList})\nVALUES\n${values};`);
+        output.push(d.buildDumpInsert(database, tableName, fieldNames, batch));
         if (i + BATCH < rows.length) output.push('');
       }
     } catch (e) {
@@ -883,13 +863,6 @@ async function dumpTable(db, instanceId, database, tableName, output, mode = 'al
   }
 }
 
-function escapeSqlVal(val) {
-  if (val === null || val === undefined) return 'NULL';
-  if (typeof val === 'number') return String(val);
-  if (val instanceof Date) return `'${val.toISOString().slice(0, 19).replace('T', ' ')}'`;
-  const s = String(val);
-  return `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-}
 
 /* ==================== Version Update ==================== */
 const https = require('https');
@@ -1189,7 +1162,7 @@ app.get('*', (req, res) => {
   res.sendFile(target);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 function startServer(port) {
   return new Promise((resolve, reject) => {

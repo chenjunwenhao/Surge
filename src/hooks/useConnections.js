@@ -9,6 +9,7 @@ export default function useConnections({
   /* ----- Modal state ----- */
   const [showModal, setShowModal] = useState(false);
   const [mName, setMName] = useState('');
+  const [mType, setMType] = useState('mysql');
   const [mHost, setMHost] = useState('127.0.0.1');
   const [mPort, setMPort] = useState(3306);
   const [mUser, setMUser] = useState('root');
@@ -39,19 +40,19 @@ export default function useConnections({
     try {
       const r = await api('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         timeout: 15000,
-        body: JSON.stringify({ host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined }) });
+        body: JSON.stringify({ type: mType, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined }) });
       setMResult(r);
     } catch (e) {
       setMResult({ ok: false, error: e.name === 'AbortError' ? 'Connection test timed out (15s)' : (e.message || String(e)) });
     } finally {
       setMTesting(false);
     }
-  }, [mHost, mPort, mUser, mPass, mDb]);
+  }, [mType, mHost, mPort, mUser, mPass, mDb]);
 
   /* ----- Modal: connect / update ----- */
   const modalConnect = useCallback(async () => {
-    const name = mName || `${mUser}@${mHost}/${mDb || 'mysql'}`;
-    const payload = { host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined };
+    const name = mName || `${mUser}@${mHost}/${mDb || (mType === 'pg' ? 'postgres' : 'mysql')}`;
+    const payload = { type: mType, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || undefined };
 
     if (mEditId) {
       setShowModal(false);
@@ -59,10 +60,10 @@ export default function useConnections({
       const ur = await api(`/api/connections/${encodeURIComponent(mEditId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: mName, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || '' }),
+        body: JSON.stringify({ type: mType, name: mName, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || '' }),
       });
       if (ur.ok) {
-        setSavedConns(p => p.map(c => c.id === mEditId ? { ...c, name: mName, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || '' } : c));
+        setSavedConns(p => p.map(c => c.id === mEditId ? { ...c, type: mType, name: mName, host: mHost, port: mPort, user: mUser, password: mPass, database: mDb || '' } : c));
         setInstances(p => p.map(i => {
           if (i.name === editOldNameRef.current) {
             return { ...i, name: mName, config: payload };
@@ -114,13 +115,13 @@ export default function useConnections({
     } finally {
       setConnecting(null);
     }
-  }, [mName, mHost, mPort, mUser, mPass, mDb, mSave, mEditId, err, toast, loadSaved, loadDbs, loadTabs]);
+  }, [mName, mType, mHost, mPort, mUser, mPass, mDb, mSave, mEditId, err, toast, loadSaved, loadDbs, loadTabs]);
 
   /* ----- Saved connection: connect ----- */
   const connSaved = useCallback(async (conn) => {
     const existing = instancesRef.current.find(i => i.name === conn.name && i.connected);
     if (existing) { setStatus('Already connected: ' + conn.name); return existing.id; }
-    const payload = { host: conn.host, port: conn.port || 3306, user: conn.user, password: conn.password || '', database: conn.database };
+    const payload = { type: conn.type || 'mysql', host: conn.host, port: conn.port || (conn.type === 'pg' ? 5432 : 3306), user: conn.user, password: conn.password || '', database: conn.database };
     const instId = `${conn.name}-${Date.now()}`;
     setConnecting(conn.name);
     setStatus('Connecting...');
@@ -167,8 +168,9 @@ export default function useConnections({
   const editSaved = useCallback((conn) => {
     editOldNameRef.current = conn.name;
     setMName(conn.name);
+    setMType(conn.type || 'mysql');
     setMHost(conn.host);
-    setMPort(conn.port || 3306);
+    setMPort(conn.port || (conn.type === 'pg' ? 5432 : 3306));
     setMUser(conn.user);
     setMPass(conn.password || '');
     setMDb(conn.database || '');
@@ -209,7 +211,7 @@ export default function useConnections({
 
   return {
     loadSaved, testConn, modalConnect, connSaved, delSaved, editSaved, disconnectInst, askConfirm,
-    showModal, setShowModal, mName, setMName, mHost, setMHost, mPort, setMPort,
+    showModal, setShowModal, mName, setMName, mType, setMType, mHost, setMHost, mPort, setMPort,
     mUser, setMUser, mPass, setMPass, mDb, setMDb, mSave, setMSave,
     mTesting, mResult, setMResult, mEditId, setMEditId, confirmDialog, setConfirmDialog,
     connecting,

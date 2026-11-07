@@ -6,6 +6,7 @@ export default function ConnectionModal({
   onClose,
   mEditId,
   mName, setMName,
+  mType, setMType,
   mHost, setMHost,
   mPort, setMPort,
   mUser, setMUser,
@@ -21,6 +22,17 @@ export default function ConnectionModal({
 
   const isEdit = !!mEditId;
 
+  const handleTypeChange = (newType) => {
+    setMType(newType);
+    if (newType === 'pg') {
+      setMPort(5432);
+      if (mUser === 'root') setMUser('postgres');
+    } else {
+      setMPort(3306);
+      if (mUser === 'postgres') setMUser('root');
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-dialog" onClick={e => e.stopPropagation()}>
@@ -32,6 +44,11 @@ export default function ConnectionModal({
           <div className="conn-form">
             <label className="form-label">Connection Name</label>
             <input className="conn-input" placeholder="My Connection" value={mName} onChange={e => setMName(e.target.value)} />
+            <label className="form-label">Database Type</label>
+            <select className="conn-input" value={mType} onChange={e => handleTypeChange(e.target.value)}>
+              <option value="mysql">🐬 MySQL</option>
+              <option value="pg">🐘 PostgreSQL</option>
+            </select>
             <div className="conn-form-row">
               <div style={{ flex: 1 }}><label className="form-label">Host</label><input className="conn-input" value={mHost} onChange={e => setMHost(e.target.value)} /></div>
               <div style={{ width: 100 }}><label className="form-label">Port</label><input className="conn-input" type="number" value={mPort} onChange={e => setMPort(Number(e.target.value))} /></div>

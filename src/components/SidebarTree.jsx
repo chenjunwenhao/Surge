@@ -48,29 +48,34 @@ export default function SidebarTree({
     if (type !== 'select') {
       try { cols = await loadCols(instId, dbName, tName) || []; } catch (_) {}
     }
+    const inst = instances.find(i => i.id === instId);
+    const isPG = inst?.config?.type === 'pg';
+    const quoteId = isPG ? (id) => `"${id}"` : (id) => `\`${id}\``;
+    const tableRef = `${quoteId(dbName)}.${quoteId(tName)}`;
+    
     const colNames = cols.map(c => c.COLUMN_NAME);
     const pkNames = cols.filter(c => c.COLUMN_KEY === 'PRI').map(c => c.COLUMN_NAME);
     let sql = '';
     let title = '';
     if (type === 'select') {
-      sql = `SELECT * FROM \`${dbName}\`.\`${tName}\` LIMIT 100;`;
+      sql = `SELECT * FROM ${tableRef} LIMIT 100;`;
       title = `SEL-${tName}`;
     } else if (type === 'insert') {
       if (colNames.length) {
-        const names = colNames.map(c => `\`${c}\``).join(', ');
+        const names = colNames.map(c => quoteId(c)).join(', ');
         const phs = colNames.map(() => '').join(', ');
-        sql = `INSERT INTO \`${dbName}\`.\`${tName}\` (\n  ${names}\n) VALUES (\n  ${phs}\n);`;
+        sql = `INSERT INTO ${tableRef} (\n  ${names}\n) VALUES (\n  ${phs}\n);`;
       } else {
-        sql = `INSERT INTO \`${dbName}\`.\`${tName}\` (\n  \n) VALUES (\n  \n);`;
+        sql = `INSERT INTO ${tableRef} (\n  \n) VALUES (\n  \n);`;
       }
       title = `INS-${tName}`;
     } else if (type === 'update') {
       if (colNames.length) {
-        const sets = colNames.map(c => `\`${c}\` = ''`).join(',\n  ');
-        const where = pkNames.length ? pkNames.map(c => `\`${c}\` = ''`).join(' AND ') : '-- where';
-        sql = `UPDATE \`${dbName}\`.\`${tName}\`\nSET\n  ${sets}\nWHERE ${where};`;
+        const sets = colNames.map(c => `${quoteId(c)} = ''`).join(',\n  ');
+        const where = pkNames.length ? pkNames.map(c => `${quoteId(c)} = ''`).join(' AND ') : '-- where';
+        sql = `UPDATE ${tableRef}\nSET\n  ${sets}\nWHERE ${where};`;
       } else {
-        sql = `UPDATE \`${dbName}\`.\`${tName}\`\nSET \nWHERE ;`;
+        sql = `UPDATE ${tableRef}\nSET \nWHERE ;`;
       }
       title = `UPD-${tName}`;
     }
@@ -78,7 +83,7 @@ export default function SidebarTree({
     setOpenTabs(p => [...p, { id: tid, type: 'query', title, instId, db: dbName, sql, results: null, fields: [], error: null }]);
     setActiveTabId(tid);
     setSqlMenu(null);
-  }, [setOpenTabs, setActiveTabId, loadCols]);
+  }, [setOpenTabs, setActiveTabId, loadCols, instances]);
   return useMemo(() => {
     const search = treeSearch.trim().toLowerCase();
 
@@ -108,7 +113,7 @@ export default function SidebarTree({
             onClick={() => toggleInst(inst.id)}
             onContextMenu={e => onCtx(e, inst.id, inst.config?.database || '', null, 'instance')}>
             <span className="tree-node-arrow">{inst.expanded ? '\u25BE' : '\u25B8'}</span>
-            <span className="tree-node-icon">{I.server}</span>
+            <span className={`tree-node-icon conn-type-icon conn-type-${inst.config?.type || 'mysql'}`}>{inst.config?.type === 'pg' ? I.pg : I.mysql}</span>
             <span className="tree-node-label">{inst.name}</span>
             <span className="tree-node-badge" style={{ color: inst.connected ? 'var(--green)' : 'var(--text-muted)' }}>{inst.connected ? '\u25CF' : '\u25CB'}</span>
             {inst.connected && <span className="tree-node-action danger" onClick={e => { e.stopPropagation(); disconnectInst(inst.id); }} title="Disconnect">{I.close}</span>}
@@ -391,8 +396,8 @@ function renderTableDetail(cols, idxs, fks) {
       {idxs.length > 0 && <div className="tree-node schema-group tree-node-level-4" style={{ paddingLeft: 68 }}><span className="tree-node-label" style={{ fontSize: 10 }}>{I.index} Indexes ({idxs.length})</span></div>}
       {idxs.map((idx, i) => (
         <div key={idx.Key_name + '_' + i} className="tree-node column tree-node-level-4">
-          <span className="tree-node-icon" style={{ fontSize: 6 }}>{idx.Non_unique === 0 ? '\u25C9' : '\u25CF'}</span>
-          <span className="tree-node-label">{idx.Non_unique === 0 && <span className="pk-badge" style={{ color: 'var(--cyan)' }}>UQ</span>}{idx.Key_name}</span>
+          <span className="tree-node-icon" style={{ fontSize: 6 }}>{idx.Non_unique == 0 ? '\u25C9' : '\u25CF'}</span>
+          <span className="tree-node-label">{idx.Non_unique == 0 && <span className="pk-badge" style={{ color: 'var(--cyan)' }}>UQ</span>}{idx.Key_name}</span>
           <span className="column-type-badge">{idx.Index_type} · {idx.Column_name}</span>
         </div>
       ))}

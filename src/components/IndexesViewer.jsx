@@ -15,7 +15,7 @@ export default function IndexesViewer({ indexes, onRefresh }) {
       </tr></thead><tbody>
         {indexes.map((idx, i) => (
           <tr key={i}><td style={{ fontWeight: 500 }}>{idx.Key_name}</td><td>{idx.Column_name}</td>
-            <td>{idx.Non_unique === 0 ? 'YES' : 'no'}</td><td>{idx.Index_type}</td><td>{idx.Seq_in_index}</td></tr>
+            <td>{idx.Non_unique == 0 ? 'YES' : 'no'}</td><td>{idx.Index_type}</td><td>{idx.Seq_in_index}</td></tr>
         ))}
       </tbody></table>
     </div>
