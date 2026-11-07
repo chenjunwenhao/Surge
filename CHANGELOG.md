@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.5.1] — 2026-11-07
+
+### Fixed
+- **修复连接已保存数据库失败**：`/api/connect` 端点在只传递 `instanceId` 时没有从保存的连接中读取配置，导致使用空配置连接失败（"Access denied for user ''@'localhost'"）。
+
+## [2.5.0] — 2026-11-07
+
+### Added
+- **PostgreSQL 支持**：新增 PostgreSQL 数据库连接支持，采用两层抽象架构：
+  - **Driver 层**（连接协议）：`mysql-driver.js` 和 `pg-driver.js`
+  - **Dialect 层**（SQL 语法）：`mysql-dialect.js` 和 `pg-dialect.js`
+- **连接类型选择器**：新建/编辑连接时可选择 MySQL 或 PostgreSQL
+- **智能标识符引用**：MySQL 使用反引号 (`` `table` ``)，PostgreSQL 使用双引号 (`"schema"."table"`)
+- **参数占位符适配**：MySQL 使用 `?`，PostgreSQL 使用 `$1, $2`
+- **PostgreSQL 特性支持**：
+  - Schema 浏览（侧边栏显示 schema 层级）
+  - JSONB 列自动序列化
+  - 索引信息展示（含 Seq_in_index）
+  - 查询超时自动取消（pg_cancel_backend）
+
+### Fixed
+- **类型强制转换**：PostgreSQL 返回 `Non_unique` 为字符串 '0'/'1'，修复严格等于导致的判断错误
+- **affectedRows 返回值统一**：两个驱动的 execute() 返回一致的 `{ rows, fields, affectedRows, insertId, changedRows }` 结构
+- **mType 重置**：点击 "+ New Connection" 时正确重置数据库类型为 MySQL
+
 ## [2.4.10] — 2026-10-22
 
 ### Fixed

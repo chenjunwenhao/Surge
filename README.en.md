@@ -5,17 +5,17 @@
 <h1 align="center">Surge <sub>/sɜːrdʒ/</sub></h1>
 
 <p align="center">
-  <strong>MySQL desktop client — as fast as it should be.</strong>
+  <strong>MySQL & PostgreSQL desktop client — as fast as it should be.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.4.10-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.5.1-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
 
 <p align="center" style="margin-top: 12px">
-  <img src="https://img.shields.io/badge/MySQL-Only-4479A1?logo=mysql&logoColor=white" />
+  <img src="https://img.shields.io/badge/MySQL%20%26%20PostgreSQL-4479A1?logo=mysql&logoColor=white" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react" />
   <img src="https://img.shields.io/badge/Vite-5-646CFF?logo=vite" />
   <img src="https://img.shields.io/badge/license-MIT-green" />
@@ -28,7 +28,7 @@
 ---
 
 <p align="center">
-  <strong>No PostgreSQL. No SQLite. Just MySQL.</strong><br>
+  <strong>MySQL & PostgreSQL desktop client.</strong><br>
   A brutally clean MySQL desktop client — fast search, beautiful SQL formatting, zero-barrier data editing.
 </p>
 
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG installer</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.10/Surge-2.4.10-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.5.1/Surge-2.5.1-arm64.dmg">
           <img src="https://img.shields.io/badge/Download_DMG-117_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · Portable, unzip and run</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.10/Surge-2.4.10-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.5.1/Surge-2.5.1-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/Download_Portable-133_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>

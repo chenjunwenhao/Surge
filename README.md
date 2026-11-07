@@ -5,17 +5,17 @@
 <h1 align="center">Surge <sub>/sɜːrdʒ/</sub></h1>
 
 <p align="center">
-  <strong>MySQL 管理工具，就该这么快。</strong>
+  <strong>MySQL & PostgreSQL 管理工具，就该这么快。</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.4.10-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Download-v2.5.1-0ea5e9?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge/releases"><img src="https://img.shields.io/badge/Platform-macOS+Windows-blue?style=for-the-badge" /></a>
   <a href="https://github.com/chenjunwenhao/Surge"><img src="https://img.shields.io/github/stars/chenjunwenhao/Surge?style=for-the-badge&color=fbbf24" /></a>
 </p>
 
 <p align="center" style="margin-top: 12px">
-  <img src="https://img.shields.io/badge/MySQL-Only-4479A1?logo=mysql&logoColor=white" />
+  <img src="https://img.shields.io/badge/MySQL%20%26%20PostgreSQL-4479A1?logo=mysql&logoColor=white" />
   <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react" />
   <img src="https://img.shields.io/badge/Vite-5-646CFF?logo=vite" />
   <img src="https://img.shields.io/badge/license-MIT-green" />
@@ -28,7 +28,7 @@
 ---
 
 <p align="center">
-  <strong>不做 PostgreSQL。不做 SQLite。只做 MySQL。</strong><br>
+  <strong>支持 MySQL 和 PostgreSQL。</strong><br>
   一个干净到极致的 MySQL 桌面客户端 —— 搜索快、SQL 美、操作零门槛。
 </p>
 
@@ -41,13 +41,13 @@
     <tr>
       <td align="center" width="280">
         <strong>macOS</strong><br><sub>Apple Silicon · DMG 安装包</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.10/Surge-2.4.10-arm64.dmg">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.5.1/Surge-2.5.1-arm64.dmg">
           <img src="https://img.shields.io/badge/下载_DMG-122_MB-0ea5e9?style=for-the-badge&logo=apple" />
         </a>
       </td>
       <td align="center" width="280">
         <strong>Windows</strong><br><sub>x64 · 便携版，解压即用</sub><br><br>
-        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.4.10/Surge-2.4.10-portable-win-x64.zip">
+        <a href="https://github.com/chenjunwenhao/Surge/releases/download/v2.5.1/Surge-2.5.1-portable-win-x64.zip">
           <img src="https://img.shields.io/badge/下载_便携版-138_MB-0ea5e9?style=for-the-badge&logo=windows" />
         </a>
       </td>
