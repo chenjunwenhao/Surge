@@ -229,6 +229,13 @@ app.delete('/api/connections/:id', (req, res) => {
 app.post('/api/connect', async (req, res) => {
   try {
     const { instanceId = `default`, save = false, name, ...cfg } = req.body;
+    // If cfg doesn't have host, load from saved connections
+    if (!cfg.host && instanceId !== 'default') {
+      const saved = findConnection(instanceId);
+      if (saved) {
+        Object.assign(cfg, saved);
+      }
+    }
     const dbType = cfg.type || 'mysql';
     const dbDialect = getDialect(dbType);
     await db.connect(instanceId, cfg);
