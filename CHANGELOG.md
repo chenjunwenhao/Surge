@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.5.2] — 2026-11-23
+
+### Fixed
+- **修复 PostgreSQL 事务报错**：`connection.beginTransaction is not a function`。原代码直接调用 mysql2 专有的 `beginTransaction/commit/rollback` 方法，PG 客户端不存在这些方法。在驱动层新增 `beginTransaction/commit/rollback` 抽象，MySQL 驱动调用 mysql2 原生 API，PG 驱动使用 `BEGIN/COMMIT/ROLLBACK` SQL 语句。`db.js` 中 6 处调用全部改走驱动抽象。
+
 ## [2.5.1] — 2026-11-07
 
 ### Fixed

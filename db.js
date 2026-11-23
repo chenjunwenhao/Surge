@@ -75,7 +75,7 @@ async function disconnect(instanceId) {
   for (const [sessionId, conn] of txConnections.entries()) {
     if (sessionInstances.get(sessionId) !== instanceId) continue;
     try {
-      await conn.rollback();
+      await drv.rollback(conn);
       drv.releaseConnection(conn);
     } catch (_) {}
     txConnections.delete(sessionId);
@@ -123,7 +123,7 @@ async function beginTransaction(sessionId, instanceId) {
   const drv = getDriverForInstance(instanceId);
   if (txConnections.has(sessionId)) throw new Error('Transaction already in progress for this tab');
   const connection = await drv.getConnection(pool);
-  await connection.beginTransaction();
+  await drv.beginTransaction(connection);
   txConnections.set(sessionId, connection);
   sessionInstances.set(sessionId, instanceId);
 
@@ -143,7 +143,7 @@ async function commit(sessionId) {
   const instanceId = sessionInstances.get(sessionId);
   const drv = getDriverForInstance(instanceId);
   clearTxTimer(sessionId);
-  await connection.commit();
+  await drv.commit(connection);
   drv.releaseConnection(connection);
   txConnections.delete(sessionId);
   sessionInstances.delete(sessionId);
@@ -156,7 +156,7 @@ async function rollback(sessionId) {
   const instanceId = sessionInstances.get(sessionId);
   const drv = getDriverForInstance(instanceId);
   clearTxTimer(sessionId);
-  await connection.rollback();
+  await drv.rollback(connection);
   drv.releaseConnection(connection);
   txConnections.delete(sessionId);
   sessionInstances.delete(sessionId);
@@ -169,7 +169,7 @@ async function autoRollbackTransaction(sessionId, reason) {
   const instanceId = sessionInstances.get(sessionId);
   const drv = getDriverForInstance(instanceId);
   try {
-    await connection.rollback();
+    await drv.rollback(connection);
     drv.releaseConnection(connection);
   } catch (_) {}
   txConnections.delete(sessionId);
@@ -254,7 +254,7 @@ async function shutdownAll() {
     const instanceId = sessionInstances.get(sessionId);
     const drv = getDriverForInstance(instanceId);
     try {
-      await conn.rollback();
+      await drv.rollback(conn);
       drv.releaseConnection(conn);
     } catch (_) {}
     txConnections.delete(sessionId);
